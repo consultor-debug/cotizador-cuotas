@@ -35,84 +35,136 @@ function usePersisted(key, makeInitial) {
   return [v, setV];
 }
 
-// Persistencia en IndexedDB para blobs grandes (el plano) que no caben en localStorage.
-function usePersistedImage(key) {
-  const [v, setV] = useState(null);
-  const ready = useRef(false);
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      let val = null;
-      try { val = await STORE.idbGet(key); } catch (e) {}
-      // Migración: plano viejo guardado en localStorage → IndexedDB (una sola vez)
-      if (STORE.has(key)) {
-        const legacy = STORE.load(key, null);
-        if (val == null && legacy != null) { val = legacy; try { await STORE.idbSet(key, legacy); } catch (e) {} }
-        STORE.remove(key); // liberar el espacio de localStorage de todos modos
-      }
-      if (alive && val != null) setV(val);
-    })().catch(() => {}).finally(() => { ready.current = true; });
-    return () => { alive = false; };
-  }, [key]);
-  useEffect(() => {
-    if (!ready.current) return; // no escribir hasta hidratar (evita borrar lo guardado)
-    if (v == null) STORE.idbDel(key).catch(() => {});
-    else STORE.idbSet(key, v).catch(() => {});
-  }, [key, v]);
-  return [v, setV];
+function LoadingScreen() {
+  return <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", color: "var(--muted)", fontSize: 15, gap: 10 }}>
+    <Icon name="reset" size={22} style={{ animation: "spin 1s linear infinite" }} /> Conectando con la base de datos...
+  </div>;
 }
 
 function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [route, setRoute] = useState("plano");
-  const demoRef = useRef(null);
-  const demo = () => (demoRef.current || (demoRef.current = STORE.seed(APP)));
 
-  const [lotes, setLotes] = usePersisted("lotes", () => APP.lotes.map(l => ({ ...l })));
-  const [polys, setPolys] = usePersisted("polys", () => PLAN.seedPolys(APP.lotes));
-  const [planoImg, setPlanoImg] = usePersistedImage("planoImg");
-  const [planoMode, setPlanoMode] = usePersisted("planoMode", "esquema");
-  const [planoOpacity, setPlanoOpacity] = usePersisted("planoOpacity", 1);
-  const [brand, setBrand] = usePersisted("brand", () => ({ nombre: "Mi Proyecto", tagline: "Cotizador de cuotas", logo: null }));
+  // --- Estado Supabase ---
+  const [appLoading, setAppLoading] = useState(true);
+  const [appError, setAppError] = useState(null);
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [needsBootstrap, setNeedsBootstrap] = useState(false);
+
+  // Datos compartidos (Supabase)
+  const [asesores, setAsesores] = useState([]);
+  const [lotes, setLotes] = useState(() => APP.lotes.map(l => ({ ...l })));
+  const [polys, setPolys] = useState(() => PLAN.seedPolys(APP.lotes));
+  const [brand, setBrand] = useState({ nombre: "Mi Proyecto", tagline: "Cotizador de cuotas", logo: null });
+  const [cond, setCond] = useState(() => JSON.parse(JSON.stringify(APP.condiciones)));
+  const [clientes, setClientes] = useState([]);
+  const [cotizaciones, setCotizaciones] = useState([]);
+  const [reservas, setReservas] = useState([]);
+  const [conexiones, setConexiones] = useState([]);
+  const [planoImg, setPlanoImg] = useState(null);
+
+  // Preferencias locales (localStorage)
+  const [planoMode, setPlanoMode] = useState(() => STORE.load("planoMode", "esquema"));
+  const [planoOpacity, setPlanoOpacity] = useState(() => STORE.load("planoOpacity", 1));
+  const [moneda, setMoneda] = useState(() => STORE.load("moneda", "PEN"));
+
   const [brandOpen, setBrandOpen] = useState(false);
-  const [asesores, setAsesores] = usePersisted("asesores", () => APP.asesores.map(a => ({ ...a })));
-  const [cond, setCond] = usePersisted("cond", () => JSON.parse(JSON.stringify(APP.condiciones)));
-  const [clientes, setClientes] = usePersisted("clientes", () => demo().clientes);
-  const [cotizaciones, setCotizaciones] = usePersisted("cotizaciones", () => demo().cotizaciones);
-  const [reservas, setReservas] = usePersisted("reservas", () => demo().reservas);
-  const [conexiones, setConexiones] = usePersisted("conexiones", () => STORE.seedConexiones(APP));
-
-  const [sessionUid, setSessionUid] = usePersisted("sessionUid", null);
-  const [moneda, setMoneda] = useState("PEN");
   const [quote, setQuote] = useState(null);
   const [toast, toastNode] = useToasts();
-  // Sesión activa solo si la cuenta existe y tiene acceso habilitado.
-  const asesor = asesores.find(a => a.id === sessionUid && PERMS.activo(a)) || null;
+  const initialLoadDone = useRef(false);
+  const syncChannel = useRef(null);
+  const isApplyingRemote = useRef(false);
+
+  const asesor = profile;
   const asesorId = asesor ? asesor.id : null;
   const perms = asesor ? permsFor(asesor) : permsFor({});
 
-  // Migración de cuentas: deja solo cuentas con acceso real (usuario) y garantiza
-  // que exista el superusuario larce. Limpia las cuentas demo heredadas (sin usuario).
+  // ---- Carga inicial desde Supabase ----
   useEffect(() => {
-    setAsesores(list => {
-      const tieneLarce = list.some(a => a.super || (a.usuario || "").toLowerCase() === "larce");
-      const limpio = list.filter(a => a.usuario || a.super);
-      const next = tieneLarce ? limpio : [APP.asesores[0], ...limpio];
-      return next.length !== list.length ? next : list;
+    (async () => {
+      try {
+        const sess = await DB.getSession();
+        if (sess) { setSession(sess); await loadAll(sess.user.id); }
+        else { const n = await DB.countProfiles(); setNeedsBootstrap(n === 0); }
+      } catch (e) { setAppError("No se pudo conectar con la base de datos. Verifica que el SQL de configuración se haya ejecutado."); console.error(e); }
+      setAppLoading(false);
+    })();
+    const { data: { subscription } } = DB.db.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") { setSession(null); setProfile(null); initialLoadDone.current = false; }
     });
+    return () => subscription.unsubscribe();
   }, []);
+
+  async function loadAll(uid) {
+    const [mainData, assetData, profs, conxs] = await Promise.all([
+      DB.loadMain(), DB.loadAssets(), DB.loadProfiles(), DB.loadConexiones()
+    ]);
+    if (profs) setAsesores(profs);
+    if (conxs) setConexiones(conxs);
+    setProfile((profs || []).find(p => p.id === uid) || null);
+    if (assetData && assetData.planoImg) setPlanoImg(assetData.planoImg);
+    if (mainData && Object.keys(mainData).length > 0) {
+      if (mainData.lotes) setLotes(mainData.lotes);
+      if (mainData.polys) setPolys(mainData.polys);
+      if (mainData.brand) setBrand(mainData.brand);
+      if (mainData.cond) setCond(mainData.cond);
+      if (mainData.clientes) setClientes(mainData.clientes);
+      if (mainData.cotizaciones) setCotizaciones(mainData.cotizaciones);
+      if (mainData.reservas) setReservas(mainData.reservas);
+    } else {
+      const demo = STORE.seed(APP);
+      const il = APP.lotes.map(l => ({ ...l })); const ip = PLAN.seedPolys(APP.lotes);
+      const ib = { nombre: "Mi Proyecto", tagline: "Cotizador de cuotas", logo: null };
+      const ic = JSON.parse(JSON.stringify(APP.condiciones));
+      setLotes(il); setPolys(ip); setBrand(ib); setCond(ic);
+      setClientes(demo.clientes); setCotizaciones(demo.cotizaciones); setReservas(demo.reservas);
+      DB.saveMain({ lotes: il, polys: ip, brand: ib, cond: ic, clientes: demo.clientes, cotizaciones: demo.cotizaciones, reservas: demo.reservas });
+    }
+    initialLoadDone.current = true;
+  }
+
+  // Auto-guardar en Supabase con debounce de 2s + broadcast en tiempo real
+  useEffect(() => {
+    if (!initialLoadDone.current || !session) return;
+    if (isApplyingRemote.current) { isApplyingRemote.current = false; return; } // skip: datos recibidos de otro usuario
+    const state = { lotes, polys, brand, cond, clientes, cotizaciones, reservas };
+    const timer = setTimeout(() => {
+      DB.saveMain(state);
+      if (syncChannel.current) syncChannel.current.send(state);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [lotes, polys, brand, cond, clientes, cotizaciones, reservas]);
+
+  useEffect(() => {
+    if (!initialLoadDone.current || !session) return;
+    DB.saveAssets({ planoImg: planoImg || null });
+  }, [planoImg]);
+
+  useEffect(() => { STORE.save("planoMode", planoMode); }, [planoMode]);
+  useEffect(() => { STORE.save("planoOpacity", planoOpacity); }, [planoOpacity]);
+  useEffect(() => { STORE.save("moneda", moneda); }, [moneda]);
+
+  // Canal de sincronización en tiempo real (broadcast Supabase)
+  useEffect(() => {
+    if (!session) { if (syncChannel.current) { syncChannel.current.unsub(); syncChannel.current = null; } return; }
+    const { send, unsub } = DB.createSyncChannel(session.user.id, (data) => {
+      // Aplicar estado remoto sin disparar auto-save ni re-broadcast
+      isApplyingRemote.current = true;
+      if (data.lotes) setLotes(data.lotes);
+      if (data.polys) setPolys(data.polys);
+      if (data.brand) setBrand(data.brand);
+      if (data.cond) setCond(data.cond);
+      if (data.clientes) setClientes(data.clientes);
+      if (data.cotizaciones) setCotizaciones(data.cotizaciones);
+      if (data.reservas) setReservas(data.reservas);
+    });
+    syncChannel.current = { send, unsub };
+    return () => { if (syncChannel.current) { syncChannel.current.unsub(); syncChannel.current = null; } };
+  }, [session]);
+
   const reservasRef = useRef(reservas);
   useEffect(() => { reservasRef.current = reservas; }, [reservas]);
-  // Migración: reservas guardadas antes del historial reciben su evento de creación
-  useEffect(() => {
-    if (reservas.some(r => !r.historial)) {
-      setReservas(rs => rs.map(r => {
-        if (r.historial) return r;
-        const d = r.dias || Math.max(1, Math.round((r.expiresAt - r.createdAt) / STORE.DAY));
-        return { ...r, dias: d, historial: [{ ts: r.createdAt, accion: "creada", por: r.asesorNombre, detalle: d + " días de plazo" }] };
-      }));
-    }
-  }, []);
   useEffect(() => {
     const tick = () => {
       const now = Date.now();
@@ -180,27 +232,26 @@ function App() {
     setLotes(ls => ls.map(l => l.id === r.loteId ? { ...l, estado: "vendido" } : l));
     toast("Lote " + r.loteId + " vendido a " + r.clienteNombre, "ok");
   }
-  function resetDemo() {
-    STORE.clearAll();
+  async function resetDemo() {
+    if (!session) return;
+    const demo = STORE.seed(APP);
+    const il = APP.lotes.map(l => ({ ...l })); const ip = PLAN.seedPolys(APP.lotes);
+    const ib = { nombre: "Mi Proyecto", tagline: "Cotizador de cuotas", logo: null };
+    await DB.saveMain({ lotes: il, polys: ip, brand: ib, cond: JSON.parse(JSON.stringify(APP.condiciones)), clientes: demo.clientes, cotizaciones: demo.cotizaciones, reservas: demo.reservas });
+    await DB.saveAssets({ planoImg: null });
     location.reload();
   }
-  function vaciarTodo() {
-    STORE.vaciarTrabajo();
+  async function vaciarTodo() {
+    if (!session) return;
+    await DB.saveMain({ lotes, polys, brand, cond, clientes: [], cotizaciones: [], reservas: [] });
+    await DB.clearConexiones();
     location.reload();
   }
-  // Registra/incrementa la conexión de una cuenta al iniciar sesión.
-  function registrarConexion(u) {
-    const now = Date.now();
-    setConexiones(cs => {
-      const base = { id: u.id, nombre: u.nombre, rol: u.rol, color: u.color, iniciales: u.iniciales };
-      const i = cs.findIndex(x => x.id === u.id);
-      if (i === -1) return [...cs, { ...base, count: 1, firstSeen: now, lastSeen: now }];
-      return cs.map(x => x.id === u.id ? { ...x, ...base, count: (x.count || 0) + 1, lastSeen: now } : x);
-    });
-  }
-  function iniciarSesion(u) {
-    registrarConexion(u);
-    setSessionUid(u.id);
+  async function iniciarSesion({ session: sess, profile: prof }) {
+    setSession(sess); setProfile(prof);
+    await loadAll(sess.user.id);
+    await DB.upsertConexion(sess.user.id, { nombre: prof.nombre, rol: prof.rol, color: prof.color, iniciales: prof.iniciales });
+    const conxs = await DB.loadConexiones(); setConexiones(conxs);
     setRoute("plano");
   }
 
@@ -225,12 +276,15 @@ function App() {
     perms.usuarios && { k: "conexiones", label: "Conexiones", icon: "chart" },
   ].filter(Boolean);
 
-  // Guardia de ruta: si el rol no puede ver la sección, vuelve al plano
+  // Guardia de ruta
   useEffect(() => {
-    if (!nav.some(n => n.k === route)) setRoute("plano");
-  }, [route, perms.admin, perms.cond, perms.usuarios]);
+    if (asesor && !nav.some(n => n.k === route)) setRoute("plano");
+  }, [route, perms.admin, perms.cond, perms.usuarios, !!asesor]);
 
-  if (!asesor) return <Login asesores={asesores} brand={brand} onLogin={iniciarSesion} />;
+  if (appLoading) return <LoadingScreen />;
+  if (appError) return <div style={{ height:"100%",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:14,background:"var(--bg)",color:"var(--muted)",padding:32,textAlign:"center" }}><Icon name="alert" size={32} /><div style={{fontSize:16,fontWeight:600,color:"var(--ink)"}}>Error de conexión</div><div style={{fontSize:14,maxWidth:400}}>{appError}</div></div>;
+  if (needsBootstrap) return <Bootstrap brand={brand} onDone={async ({session:s,profile:p}) => { setNeedsBootstrap(false); await iniciarSesion({session:s,profile:p}); }} />;
+  if (!asesor) return <Login onLogin={async (u, p) => { const r = await DB.login(u, p); if (r.ok) { await iniciarSesion(r); return {ok:true}; } return r; }} brand={brand} />;
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
@@ -266,7 +320,7 @@ function App() {
               <button key={k} className={moneda === k ? "on" : ""} style={{ padding: "6px 14px", fontSize: 13 }} onClick={() => setMoneda(k)}>{s}</button>
             ))}
           </div>
-          <AsesorSwitcher asesor={asesor} perms={perms} onLogout={() => { setSessionUid(null); }} goUsuarios={perms.usuarios ? () => setRoute("usuarios") : null} onReset={perms.usuarios ? resetDemo : null} onClear={perms.usuarios ? vaciarTodo : null} />
+          <AsesorSwitcher asesor={asesor} perms={perms} onLogout={async () => { await DB.logout(); setSession(null); setProfile(null); initialLoadDone.current = false; }} goUsuarios={perms.usuarios ? () => setRoute("usuarios") : null} onReset={perms.usuarios ? resetDemo : null} onClear={perms.usuarios ? vaciarTodo : null} />
         </div>
       </header>
 
@@ -457,18 +511,19 @@ function BrandModal({ brand, onClose, onSave }) {
   );
 }
 
-function Login({ asesores, brand, onLogin }) {
+function Login({ brand, onLogin }) {
   const [usuario, setUsuario] = useState("");
   const [pass, setPass] = useState("");
   const [ver, setVer] = useState(false);
   const [error, setError] = useState("");
 
-  function submit(e) {
+  const [loading, setLoading] = useState(false);
+  async function submit(e) {
     e.preventDefault();
-    const r = PERMS.auth(asesores, usuario, pass);
-    if (!r.ok) { setError(r.motivo); return; }
-    setError("");
-    onLogin(r.user);
+    setLoading(true);
+    const r = await onLogin(usuario, pass);
+    setLoading(false);
+    if (r && !r.ok) setError(r.motivo || "Error al iniciar sesión.");
   }
 
   return (
@@ -536,8 +591,8 @@ function Login({ asesores, brand, onLogin }) {
               </div>
             )}
 
-            <button type="submit" className="btn btn-primary btn-lg" style={{ width: "100%", justifyContent: "center", marginTop: 12, minHeight: 48 }}>
-              Ingresar <Icon name="chevRight" size={16} />
+            <button type="submit" disabled={loading} className="btn btn-primary btn-lg" style={{ width: "100%", justifyContent: "center", marginTop: 12, minHeight: 48 }}>
+              {loading ? "Iniciando..." : "Ingresar"} {!loading && <Icon name="chevRight" size={16} />}
             </button>
           </form>
 

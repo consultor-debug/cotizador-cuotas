@@ -17,28 +17,37 @@ function Usuarios({ asesores, setAsesores, currentId, toast }) {
   const nivelOrden = { Gerencia: 0, Jefatura: 1, Asesor: 2 };
   const orden = [...asesores].sort((a, b) => nivelOrden[PERMS.nivelDe(a.rol)] - nivelOrden[PERMS.nivelDe(b.rol)]);
 
-  function guardar(u) {
-    setAsesores(list => {
-      const i = list.findIndex(x => x.id === u.id);
-      if (i === -1) return [...list, u];
-      return list.map(x => x.id === u.id ? u : x);
-    });
+  async function guardar(u) {
+    const prof = { id: u.id, usuario: (u.usuario || "").toLowerCase().trim(), nombre: u.nombre, rol: u.rol, iniciales: u.iniciales, color: u.color, accesos: u.accesos || {}, activo: u.activo !== false, super: !!u.super };
+    const { ok, error } = await DB.upsertProfile(prof);
+    if (!ok) { toast("Error al guardar: " + (error && error.message), "warn"); return; }
+    setAsesores(list => { const i = list.findIndex(x => x.id === u.id); if (i === -1) return [...list, prof]; return list.map(x => x.id === u.id ? prof : x); });
     toast("Accesos de " + u.nombre + " guardados", "ok");
     setEdit(null); setCrear(false);
   }
-  function crearUsuario(u) {
-    const id = "u" + Date.now().toString(36);
-    guardar({ id, ...u });
-    toast("Usuario " + u.nombre + " creado", "ok");
+  async function crearUsuario(u) {
+    const r = await DB.signUpUser(u.usuario, u.password);
+    if (!r.ok) { toast("Error al crear cuenta: " + r.motivo, "warn"); return; }
+    const prof = { id: r.userId, usuario: (u.usuario || "").toLowerCase().trim(), nombre: u.nombre, rol: u.rol, iniciales: u.iniciales, color: u.color, accesos: u.accesos || {}, activo: u.activo !== false, super: false };
+    const { ok, error } = await DB.upsertProfile(prof);
+    if (!ok) { toast("Cuenta creada pero error en el perfil: " + (error && error.message), "warn"); return; }
+    setAsesores(list => [...list, prof]);
+    toast("Usuario " + u.nombre + " creado. Ya puede iniciar sesión.", "ok");
+    setCrear(false);
   }
-  function eliminar(u) {
+  async function eliminar(u) {
+    const { ok } = await DB.deleteProfile(u.id);
+    if (!ok) { toast("Error al eliminar usuario", "warn"); return; }
     setAsesores(list => list.filter(x => x.id !== u.id));
     toast("Usuario " + u.nombre + " eliminado", "warn");
     setDel(null);
   }
-  function toggleActivo(a) {
+  async function toggleActivo(a) {
     const bloquear = a.activo !== false;
-    setAsesores(list => list.map(x => x.id === a.id ? { ...x, activo: !bloquear } : x));
+    const updated = { ...a, activo: !bloquear };
+    const { ok } = await DB.upsertProfile(updated);
+    if (!ok) { toast("Error al actualizar acceso", "warn"); return; }
+    setAsesores(list => list.map(x => x.id === a.id ? updated : x));
     toast(bloquear ? "Acceso bloqueado para " + a.nombre : "Acceso habilitado para " + a.nombre, bloquear ? "warn" : "ok");
   }
 
@@ -179,7 +188,7 @@ function UserEditorModal({ user, usuariosTomados, onClose, onSave }) {
   const yaTengo = user && (user.usuario || "").toLowerCase() === userClean;
   const tomado = (usuariosTomados || []).includes(userClean) && !yaTengo;
   const userOk = /^[a-z0-9._-]{3,}$/.test(userClean);
-  const ok = nombre.trim().length >= 2 && userOk && !tomado && password.length >= 4;
+  const ok = nombre.trim().length >= 2 && userOk && !tomado && (isNew ? password.length >= 4 : true);
   const draftAvatar = { nombre: nombre || "?", iniciales, color };
 
   return (
@@ -193,8 +202,7 @@ function UserEditorModal({ user, usuariosTomados, onClose, onSave }) {
         </div>
       </div>
 
-      {/* Credenciales de acceso */}
-      <div className="form-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+        <div className="form-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
         <div>
           <label className="kicker" style={{ display: "block", marginBottom: 6 }}>Usuario</label>
           <div className="field" style={{ height: 44 }}>
@@ -205,6 +213,7 @@ function UserEditorModal({ user, usuariosTomados, onClose, onSave }) {
           {usuario && !userOk && <div style={{ fontSize: 11.5, color: "var(--bad-ink)", marginTop: 5 }}>Mínimo 3 caracteres: letras, números, . _ -</div>}
           {tomado && <div style={{ fontSize: 11.5, color: "var(--bad-ink)", marginTop: 5 }}>Ese usuario ya existe.</div>}
         </div>
+        {isNew ? (
         <div>
           <label className="kicker" style={{ display: "block", marginBottom: 6 }}>Contraseña</label>
           <div className="field" style={{ height: 44 }}>
@@ -217,6 +226,13 @@ function UserEditorModal({ user, usuariosTomados, onClose, onSave }) {
           </div>
           {password && password.length < 4 && <div style={{ fontSize: 11.5, color: "var(--bad-ink)", marginTop: 5 }}>Mínimo 4 caracteres.</div>}
         </div>
+        ) : (
+        <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", padding: "8px 0" }}>
+            Contraseña: se cambia desde el panel de Supabase.
+          </div>
+        </div>
+        )}
       </div>
 
       {/* Acceso habilitado */}
