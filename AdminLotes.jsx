@@ -151,7 +151,7 @@ function AdminLotes({ lotes, setLotes, moneda, toast, goPlano, brand, onLog }) {
       </div>
 
       {edit && <LoteModal lote={edit} onSave={save} onClose={() => setEdit(null)} moneda={moneda} />}
-      {importOpen && <ImportModal onClose={() => setImportOpen(false)} toast={toast} />}
+      {importOpen && <ImportModal onClose={() => setImportOpen(false)} toast={toast} lotes={lotes} setLotes={setLotes} onLog={onLog} />}
     </div>
   );
 }
@@ -177,22 +177,30 @@ function blankLote(lotes) {
 function LoteModal({ lote, onSave, onClose, moneda }) {
   const [f, setF] = useState(lote);
   const set = (k, v) => setF(s => ({ ...s, [k]: v }));
+  const dimsLocked = !!f.dimsAuto;
   const fields = [
     ["codigo", "Código", "text"], ["manzana", "Manzana", "text"], ["etapa", "Etapa", "text"],
-    ["tipologia", "Tipología", "text"], ["area", "Área m²", "num"], ["frente", "Frente m", "num"],
-    ["fondo", "Fondo m", "num"], ["orientacion", "Orientación", "text"], ["precioLista", "Precio lista S/", "num"],
+    ["tipologia", "Tipología", "text"], ["area", "Área m²", "num"],
+    ["frente", "Frente m", "num", true], ["fondo", "Fondo m", "num", true],
+    ["ladoIzq", "Lado Izq. m", "num", true], ["ladoDer", "Lado Der. m", "num", true],
+    ["orientacion", "Orientación", "text"], ["precioLista", "Precio lista S/", "num"],
   ];
   return (
     <Modal onClose={onClose} title={lote._new ? "Nuevo lote" : "Editar lote " + lote.codigo} width={560}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, padding: "4px 0 8px" }}>
-        {fields.map(([k, label, t]) => (
-          <label key={k} style={{ display: "block" }}>
-            <div className="kicker" style={{ marginBottom: 6 }}>{label}</div>
-            <div className={"field " + (t === "num" ? "field-mono" : "")} style={{ height: 42 }}>
-              <input type="text" value={f[k]} onChange={e => set(k, t === "num" ? (Number(e.target.value.replace(/[^0-9.]/g, "")) || 0) : e.target.value)} />
-            </div>
-          </label>
-        ))}
+        {fields.map(([k, label, t, dim]) => {
+          const locked = dim && dimsLocked;
+          return (
+            <label key={k} style={{ display: "block", opacity: locked ? 0.6 : 1 }}>
+              <div className="kicker" style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 5 }}>{label}{locked && <Icon name="lock" size={11} style={{ color: "var(--faint)" }} />}</div>
+              <div className={"field " + (t === "num" ? "field-mono" : "")} style={{ height: 42, background: locked ? "var(--surface-2)" : undefined }}>
+                <input type="text" value={f[k]} readOnly={locked} disabled={locked}
+                  onChange={e => set(k, t === "num" ? (Number(e.target.value.replace(/[^0-9.]/g, "")) || 0) : e.target.value)}
+                  style={locked ? { color: "var(--muted)", cursor: "not-allowed" } : undefined} />
+              </div>
+            </label>
+          );
+        })}
         <label style={{ display: "block" }}>
           <div className="kicker" style={{ marginBottom: 6 }}>Estado</div>
           <div className="field" style={{ height: 42 }}>
@@ -202,6 +210,12 @@ function LoteModal({ lote, onSave, onClose, moneda }) {
           </div>
         </label>
       </div>
+      {dimsLocked && (
+        <div style={{ display: "flex", gap: 9, alignItems: "flex-start", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 13px", marginTop: 4, fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>
+          <Icon name="lock" size={14} style={{ color: "var(--faint)", flexShrink: 0, marginTop: 1 }} />
+          <span>Lote generado de forma masiva. Frente, fondo y lados se estiman del polígono del plano y no son editables — en lotes irregulares o con curvas la medida regular no aplica. Edita el <b>Área m²</b> con el valor real del plano si lo necesitas.</span>
+        </div>
+      )}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Cancelar</button>
         <button className="btn btn-primary" onClick={() => onSave({ ...f, codigo: f.codigo || f.manzana + f.numero, _new: false })}><Icon name="check" size={16} /> Guardar</button>
@@ -210,24 +224,127 @@ function LoteModal({ lote, onSave, onClose, moneda }) {
   );
 }
 
-function ImportModal({ onClose, toast }) {
+function ImportModal({ onClose, toast, lotes, setLotes, onLog }) {
+  const [rows, setRows] = useState(null);      // filas parseadas
+  const [fileName, setFileName] = useState("");
+  const [resumen, setResumen] = useState(null); // { actualizados, nuevos }
+  const fileRef = useRef(null);
+
   function modelo() {
     const csv = "codigo,manzana,etapa,tipologia,area_m2,frente,fondo,lado_der,lado_izq,precio_lista,estado\nA1,A,2DA ETAPA,Esquina,232.43,14,16.6,17.14,17.14,50000,disponible\nA2,A,2DA ETAPA,Lote Residencial,237.72,14,16.98,17.14,17.14,47000,disponible";
     downloadFile("modelo_importacion_lotes.csv", csv, "text/csv");
     toast("Modelo de importación descargado", "ok");
   }
+
+  function splitCsvLine(line) {
+    const out = []; let cur = "", q = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') { if (q && line[i + 1] === '"') { cur += '"'; i++; } else q = !q; }
+      else if ((c === "," || c === ";") && !q) { out.push(cur); cur = ""; }
+      else cur += c;
+    }
+    out.push(cur); return out;
+  }
+  function parseCSV(text) {
+    const lines = text.replace(/\r/g, "").split("\n").filter(l => l.trim());
+    if (!lines.length) return [];
+    const head = splitCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+    return lines.slice(1).map(line => {
+      const cells = splitCsvLine(line); const o = {};
+      head.forEach((h, i) => o[h] = (cells[i] == null ? "" : cells[i]).trim());
+      return o;
+    });
+  }
+
+  function onFile(e) {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    const name = f.name.toLowerCase();
+    if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+      toast("Para Excel usa “Guardar como… CSV” y sube ese archivo.", "warn");
+      e.target.value = ""; return;
+    }
+    const rd = new FileReader();
+    rd.onload = () => {
+      try { const r = parseCSV(String(rd.result)); setRows(r); setFileName(f.name); setResumen(null); if (!r.length) toast("El archivo no tiene filas de datos", "warn"); }
+      catch (err) { toast("No se pudo leer el archivo", "bad"); }
+    };
+    rd.readAsText(f);
+    e.target.value = "";
+  }
+
+  const num = v => Number(String(v).replace(/[^0-9.\-]/g, "")) || 0;
+  const conCodigo = rows ? rows.filter(r => (r.codigo || "").trim()).length : 0;
+
+  function aplicar() {
+    if (!rows || !rows.length) return;
+    const byCodigo = {}; lotes.forEach(l => { byCodigo[String(l.codigo).toLowerCase().trim()] = l; });
+    const updates = {}; const creados = [];
+    let actualizados = 0, nuevos = 0;
+    rows.forEach(r => {
+      const cod = String(r.codigo || "").trim(); if (!cod) return;
+      const patch = {};
+      if (r.manzana) patch.manzana = r.manzana;
+      if (r.etapa) patch.etapa = r.etapa;
+      if (r.tipologia) patch.tipologia = r.tipologia;
+      if (r.area_m2) patch.area = num(r.area_m2);
+      if (r.frente) patch.frente = num(r.frente);
+      if (r.fondo) patch.fondo = num(r.fondo);
+      if (r.lado_der) patch.ladoDer = num(r.lado_der);
+      if (r.lado_izq) patch.ladoIzq = num(r.lado_izq);
+      if (r.precio_lista) patch.precioLista = num(r.precio_lista);
+      if (r.estado) patch.estado = r.estado;
+      // si la lista trae medidas reales, se desbloquea la edición individual
+      if (patch.area || patch.frente || patch.fondo || patch.ladoDer || patch.ladoIzq) patch.dimsAuto = false;
+      const ex = byCodigo[cod.toLowerCase()];
+      if (ex) { updates[ex.id] = { ...(updates[ex.id] || {}), ...patch }; actualizados++; }
+      else {
+        creados.push({ id: cod, codigo: cod, manzana: patch.manzana || (cod.match(/^[A-Za-z]+/) || ["X"])[0].toUpperCase(),
+          numero: num(cod.replace(/\D/g, "")), etapa: patch.etapa || "1RA ETAPA", tipologia: patch.tipologia || "Lote Residencial",
+          area: patch.area || 0, frente: patch.frente || 0, fondo: patch.fondo || 0, ladoDer: patch.ladoDer || 0, ladoIzq: patch.ladoIzq || 0,
+          orientacion: "Norte", precioLista: patch.precioLista || 0, estado: patch.estado || "disponible" });
+        nuevos++;
+      }
+    });
+    setLotes(ls => [...ls.map(l => updates[l.id] ? { ...l, ...updates[l.id] } : l), ...creados]);
+    onLog && onLog({ cat: "lote", accion: "importar", detalle: "Importación por Código · " + actualizados + " actualizados · " + nuevos + " nuevos" });
+    setResumen({ actualizados, nuevos });
+    toast(actualizados + " lotes actualizados · " + nuevos + " nuevos", "ok");
+  }
+
   return (
-    <Modal onClose={onClose} title="Importar lotes desde Excel" width={520}>
-      <p style={{ color: "var(--muted)", fontSize: 14, marginTop: -4 }}>Sube un archivo .xlsx o .csv con las columnas del modelo. El sistema validará códigos duplicados y precios antes de cargar.</p>
-      <button className="btn btn-ghost" onClick={modelo} style={{ color: "var(--primary)", padding: "6px 0", marginBottom: 14 }}><Icon name="download" size={15} /> Descargar modelo de importación</button>
-      <div style={{ border: "2px dashed var(--line)", borderRadius: 14, padding: "38px 20px", textAlign: "center", background: "var(--surface-2)" }}>
+    <Modal onClose={onClose} title="Importar lista de precios" width={520}>
+      <p style={{ color: "var(--muted)", fontSize: 14, marginTop: -4 }}>Sube tu lista (CSV). El sistema enlaza cada fila por <b style={{ color: "var(--ink-2)" }}>Código</b>: si el código ya existe, actualiza sus datos individuales (precio, área, medidas…); si no existe, crea el lote.</p>
+      <button className="btn btn-ghost" onClick={modelo} style={{ color: "var(--primary)", padding: "6px 0", marginBottom: 14 }}><Icon name="download" size={15} /> Descargar modelo (.csv)</button>
+      <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={onFile} style={{ display: "none" }} />
+      <button onClick={() => fileRef.current && fileRef.current.click()}
+        style={{ width: "100%", border: "2px dashed var(--line)", borderRadius: 14, padding: "30px 20px", textAlign: "center", background: "var(--surface-2)", cursor: "pointer" }}>
         <div style={{ width: 52, height: 52, borderRadius: 14, background: "var(--primary-050)", color: "var(--primary)", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 12 }}><Icon name="upload" size={24} /></div>
-        <div style={{ fontWeight: 700 }}>Arrastra tu archivo aquí</div>
-        <div style={{ fontSize: 13, color: "var(--faint)", marginTop: 4 }}>o haz clic para seleccionar · .xlsx, .csv</div>
-      </div>
+        <div style={{ fontWeight: 700 }}>{fileName ? fileName : "Haz clic para seleccionar tu CSV"}</div>
+        <div style={{ fontSize: 13, color: "var(--faint)", marginTop: 4 }}>{rows ? rows.length + " filas leídas · " + conCodigo + " con código" : "Columna obligatoria: código · resto opcional"}</div>
+      </button>
+
+      {rows && !resumen && (
+        <div style={{ display: "flex", alignItems: "center", gap: 9, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 13px", marginTop: 14, fontSize: 13, color: "var(--muted)" }}>
+          <Icon name="check" size={15} style={{ color: "var(--ok-ink)" }} /> Se enlazará por código y se actualizarán los lotes existentes.
+        </div>
+      )}
+      {resumen && (
+        <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+          <div className="card" style={{ flex: 1, padding: "12px 14px", textAlign: "center" }}>
+            <div className="mono" style={{ fontSize: 26, fontWeight: 700, color: "var(--ok-ink)" }}>{resumen.actualizados}</div>
+            <div style={{ fontSize: 12.5, color: "var(--muted)" }}>actualizados</div>
+          </div>
+          <div className="card" style={{ flex: 1, padding: "12px 14px", textAlign: "center" }}>
+            <div className="mono" style={{ fontSize: 26, fontWeight: 700, color: "var(--primary)" }}>{resumen.nuevos}</div>
+            <div style={{ fontSize: 12.5, color: "var(--muted)" }}>nuevos</div>
+          </div>
+        </div>
+      )}
+
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
-        <button className="btn" onClick={onClose}>Cancelar</button>
-        <button className="btn btn-primary" onClick={() => { toast("Importación simulada · 0 lotes nuevos", "ok"); onClose(); }}><Icon name="upload" size={15} /> Importar</button>
+        <button className="btn" onClick={onClose}>{resumen ? "Cerrar" : "Cancelar"}</button>
+        {!resumen && <button className="btn btn-primary" disabled={!rows || !conCodigo} onClick={aplicar}><Icon name="upload" size={15} /> Importar {conCodigo ? conCodigo + " filas" : ""}</button>}
       </div>
     </Modal>
   );

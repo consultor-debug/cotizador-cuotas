@@ -48,7 +48,7 @@ function Cotizador({ lote, cond, asesor, moneda, onAction, onEnviar }) {
 
   // Reset al cambiar de lote O cuando cambia su precio lista (sync bidireccional con AdminLotes)
   useEffect(() => {
-    setDesc(0); setInicial(Math.round(lote.precioLista * 0.2));
+    setDesc(0); setInicial(Math.round((lote.precioLista + cond.juegoPlanos) * 0.2));
     setPlazo(24); setTab("financiamiento"); setPlanosOn(true);
     setAprob({ state: "idle", by: null, left: 0 });
   }, [lote.id, lote.precioLista]);
@@ -178,12 +178,12 @@ function Cotizador({ lote, cond, asesor, moneda, onAction, onEnviar }) {
         {/* Financiamiento */}
         {tab === "financiamiento" && (
           <div className="fade-in" style={{ marginTop: 20 }}>
-            <MontoPctControl label="Cuota inicial" valuePEN={Math.min(inicial, precioVenta)} basePEN={lote.precioLista} moneda={moneda}
-              onChange={setInicial} hint="Calculada sobre el precio de lista. El asesor define el monto." />
+            <MontoPctControl label="Cuota inicial" valuePEN={Math.min(inicial, precioVenta)} basePEN={precioVenta} moneda={moneda}
+              onChange={setInicial} hint="Calculada sobre el precio de venta (después de descuentos). El asesor define el monto." />
             <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
               {[0, 10, 20, 30, 50].map(p => (
                 <button key={p} className="btn" style={{ flex: 1, padding: "7px 0", justifyContent: "center", fontSize: 13 }}
-                  onClick={() => setInicial(Math.round(lote.precioLista * p / 100))}>{p}%</button>
+                  onClick={() => setInicial(Math.round(precioVenta * p / 100))}>{p}%</button>
               ))}
             </div>
 

@@ -146,19 +146,26 @@ function PlanoBoard({ lotes, setLotes, polys, setPolys, planoImg, planoOpacity =
   }
 
   // subdividir un polígono (general o lote) en cols×rows lotes
-  function aplicarSubdiv(poly, { manzana, cols, rows, etapa, precio }) {
+  function aplicarSubdiv(poly, { manzana, cols, rows, etapa, precio, inicio, frente, fondo, ladoIzq, ladoDer }) {
     const cells = PLAN.subdivide(poly, cols, rows);
     const existentes = new Set(lotes.map(l => l.id));
     const nuevosLotes = [], nuevosPolys = [];
-    let n = 0;
+    let n = Math.max(1, inicio || 1) - 1;
     cells.forEach((pts) => {
       n++; let numero = n, id = manzana + "-" + String(numero).padStart(2, "0");
       while (existentes.has(id)) { numero++; id = manzana + "-" + String(numero).padStart(2, "0"); }
       existentes.add(id);
-      const area = PLAN.estimaArea(pts), frente = +(Math.sqrt(area * 0.62)).toFixed(2);
+      const areaEst = PLAN.estimaArea(pts), frEst = +(Math.sqrt(areaEst * 0.62)).toFixed(2), foEst = +(areaEst / frEst).toFixed(2);
+      // Medidas: usa las indicadas en el modal; si van vacías (0) se estiman del polígono
+      const fr = frente > 0 ? frente : frEst;
+      const fo = fondo > 0 ? fondo : foEst;
+      const li = ladoIzq > 0 ? ladoIzq : fo;
+      const ld = ladoDer > 0 ? ladoDer : fo;
+      const area = (frente > 0 && fondo > 0) ? +(fr * fo).toFixed(2) : areaEst;
+      // dimsAuto: medidas masivas/estimadas — bloqueadas en la edición individual
       nuevosLotes.push({ id, codigo: manzana + numero, manzana, numero, etapa, tipologia: "Lote Residencial",
-        area, frente, fondo: +(area / frente).toFixed(2), ladoDer: frente, ladoIzq: frente,
-        orientacion: "Norte", precioLista: precio, estado: "disponible" });
+        area, frente: fr, fondo: fo, ladoDer: ld, ladoIzq: li,
+        orientacion: "Norte", precioLista: precio, estado: "disponible", dimsAuto: true });
       nuevosPolys.push({ loteId: id, pts });
     });
     setLotes(ls => [...ls, ...nuevosLotes]);
@@ -177,7 +184,7 @@ function PlanoBoard({ lotes, setLotes, polys, setPolys, planoImg, planoOpacity =
         : <SchematicBg />}
 
       <svg ref={svgRef} viewBox="0 0 1240 684" width={1240} height={684}
-        style={{ position: "absolute", inset: 0, cursor: editMode ? (drawing ? "crosshair" : "default") : "grab", touchAction: "none" }}>
+        style={{ position: "absolute", inset: 0, cursor: drawing ? "crosshair" : "grab", touchAction: "none" }}>
         <rect x={0} y={0} width={1240} height={684} fill="transparent"
           onPointerDown={bgPointerDown} onPointerMove={bgMove} onDoubleClick={() => draft.length >= 3 && cerrarDraft()} />
 
@@ -208,7 +215,7 @@ function PlanoBoard({ lotes, setLotes, polys, setPolys, planoImg, planoOpacity =
               {bb.h > 16 && bb.w > 12 && <text x={c[0]} y={c[1] + 2.6} textAnchor="middle" fontSize={8} fontWeight={700}
                 fill={transp ? "#2f3440" : e.text}
                 stroke={transp ? "#fff" : undefined} strokeWidth={transp ? 2.4 : undefined} paintOrder={transp ? "stroke" : undefined}
-                style={{ pointerEvents: "none", userSelect: "none" }}>{l.numero}</text>}
+                style={{ pointerEvents: "none", userSelect: "none" }}>{l.codigo || l.numero}</text>}
             </g>
           );
         })}
@@ -350,6 +357,17 @@ function SubdividirModal({ poly, lotes, onCancel, onApply }) {
   const [cols, setCols] = useState(4);
   const [rows, setRows] = useState(3);
   const [precio, setPrecio] = useState(38000);
+  const [inicio, setInicio] = useState(1);
+  const [frente, setFrente] = useState(0);
+  const [fondo, setFondo] = useState(0);
+  const [ladoIzq, setLadoIzq] = useState(0);
+  const [ladoDer, setLadoDer] = useState(0);
+  const mzClean = manzana.toUpperCase().trim();
+  // Sugerir el siguiente número libre de la manzana elegida
+  useEffect(() => {
+    const usados = lotes.filter(l => l.manzana === mzClean).map(l => l.numero);
+    setInicio((usados.length ? Math.max(...usados) : 0) + 1);
+  }, [mzClean]);
   const total = cols * rows;
   const cuad = poly.pts.length === 4;
   return (
@@ -363,21 +381,37 @@ function SubdividirModal({ poly, lotes, onCancel, onApply }) {
         <SubSlider label="Filas" value={rows} setValue={setRows} max={30} />
       </div>
       <GridPreview cols={cols} rows={rows} />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.2fr", gap: 12, marginTop: 16 }}>
         <div>
           <label className="kicker" style={{ display: "block", marginBottom: 6 }}>Manzana</label>
           <div className="field" style={{ height: 42 }}><input value={manzana} onChange={e => setManzana(e.target.value.slice(0, 2).toUpperCase())} /></div>
+        </div>
+        <div>
+          <label className="kicker" style={{ display: "block", marginBottom: 6 }}>Inicia en N°</label>
+          <div className="field field-mono" style={{ height: 42 }}><input className="mono" type="number" min={1} value={inicio} onChange={e => setInicio(Math.max(1, Number(e.target.value) || 1))} /></div>
         </div>
         <div>
           <label className="kicker" style={{ display: "block", marginBottom: 6 }}>Precio base (S/)</label>
           <div className="field field-mono" style={{ height: 42 }}><span className="pre">S/</span><input className="mono" type="number" step={500} value={precio} onChange={e => setPrecio(Number(e.target.value) || 0)} /></div>
         </div>
       </div>
+      <div style={{ marginTop: 16 }}>
+        <label className="kicker" style={{ display: "block", marginBottom: 7 }}>Medidas por lote (m) · opcional</label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 9 }}>
+          {[["Frente", frente, setFrente], ["Fondo", fondo, setFondo], ["Lado izq.", ladoIzq, setLadoIzq], ["Lado der.", ladoDer, setLadoDer]].map(([lab, val, setter]) => (
+            <div key={lab}>
+              <div style={{ fontSize: 11, color: "var(--faint)", fontWeight: 600, marginBottom: 5 }}>{lab}</div>
+              <div className="field field-mono" style={{ height: 40 }}><input className="mono" type="number" min={0} step={0.5} placeholder="auto" value={val || ""} onChange={e => setter(Number(e.target.value) || 0)} /></div>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>Frente = adelante · Fondo = atrás. Vacío = se estima del polígono. Se aplican a todos los lotes generados.</div>
+      </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20 }}>
-        <span style={{ fontSize: 13, color: "var(--muted)" }}>Generará <b className="mono" style={{ color: "var(--ink)" }}>{total}</b> lotes</span>
+        <span style={{ fontSize: 13, color: "var(--muted)" }}>Generará <b className="mono" style={{ color: "var(--ink)" }}>{total}</b> lotes · <span className="mono">{mzClean}{inicio}–{mzClean}{inicio + total - 1}</span></span>
         <div style={{ display: "flex", gap: 10 }}>
           <button className="btn" onClick={onCancel}>Cancelar</button>
-          <button className="btn btn-primary" disabled={!manzana.trim() || total < 1} onClick={() => onApply({ manzana: manzana.toUpperCase().trim(), cols, rows, etapa: "1RA ETAPA", precio })}><Icon name="check" size={15} /> Generar {total} lotes</button>
+          <button className="btn btn-primary" disabled={!manzana.trim() || total < 1} onClick={() => onApply({ manzana: mzClean, cols, rows, etapa: "1RA ETAPA", precio, inicio, frente, fondo, ladoIzq, ladoDer })}><Icon name="check" size={15} /> Generar {total} lotes</button>
         </div>
       </div>
     </Modal>

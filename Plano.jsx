@@ -13,6 +13,7 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
   const [tool, setTool] = useState("select");
   const [vaciar, setVaciar] = useState(false);
   const [compact, setCompact] = useState(() => STORE.load("planoCompact", false));
+  const [expand, setExpand] = useState(false);
   const [reservar, setReservar] = useState(null);   // lote pendiente de reserva
   const [barPos, setBarPos] = useState({ x: 16, y: 16 });
   const barDrag = useRef(null);
@@ -35,6 +36,14 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
   }, []);
   useEffect(() => { if (!perms.editarPlano && editMode) setEditMode(false); }, [perms.editarPlano, editMode]);
   useEffect(() => { STORE.save("planoCompact", compact); }, [compact]);
+  // Pantalla completa del lienzo: re-encuadra al entrar/salir y cierra con Esc
+  useEffect(() => {
+    const t = setTimeout(fit, 60);
+    if (!expand) return () => clearTimeout(t);
+    const onKey = e => { if (e.key === "Escape") setExpand(false); };
+    window.addEventListener("keydown", onKey);
+    return () => { clearTimeout(t); window.removeEventListener("keydown", onKey); };
+  }, [expand]);
 
   const counts = useMemo(() => ({
     todos: lotes.length,
@@ -72,10 +81,12 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
     toast("Lote " + lote.id + " separado para " + cliente.nombre + " · vence en " + dias + " días", "warn");
   }
 
-  // zoom & pan (pan deshabilitado en edición)
+  // zoom & pan — en edición se permite mover el plano arrastrando con la herramienta "Ajustar"
+  // (los lotes, vértices y mangos detienen la propagación, así que arrastrarlos sigue moviéndolos).
   function onWheel(e) { e.preventDefault(); setZoom(z => Math.min(2.2, Math.max(0.5, z - e.deltaY * 0.0012))); }
+  const panAllowed = !editMode || tool === "select";
   function onDown(e) {
-    if (editMode) return;
+    if (!panAllowed) return;                           // dibujando: el click coloca vértices
     if (e.target.closest(".poly-cell")) return;       // controles flotantes
     drag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
     moved.current = false;
@@ -87,7 +98,7 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
     if (Math.abs(dx) + Math.abs(dy) > 4) moved.current = true;
     setPan({ x: drag.current.px + dx, y: drag.current.py + dy });
   }
-  function onUp() { drag.current = null; if (wrap.current) wrap.current.style.cursor = editMode ? "default" : "grab"; }
+  function onUp() { drag.current = null; if (wrap.current) wrap.current.style.cursor = panAllowed ? "grab" : "default"; }
   function onClickCapture(e) { if (moved.current) { e.stopPropagation(); moved.current = false; } }
 
   // arrastrar la barra de edición flotante
@@ -221,9 +232,11 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
       {/* Split: plano + cotizador */}
       <div className="plano-split" style={{ flex: 1, display: "flex", gap: 18, padding: "0 30px 24px", minHeight: 0, minBlockSize: 520 }}>
         {/* Lienzo */}
-        <div className="card plano-lienzo" style={{ flex: 1, position: "relative", overflow: "hidden", background: "#fff" }}>
+        <div className="card plano-lienzo" style={expand
+          ? { position: "fixed", inset: 0, zIndex: 120, borderRadius: 0, overflow: "hidden", background: "#fff" }
+          : { flex: 1, position: "relative", overflow: "hidden", background: "#fff" }}>
           <div ref={wrap} onWheel={onWheel} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp} onClickCapture={onClickCapture}
-            style={{ position: "absolute", inset: 0, cursor: editMode ? "default" : "grab", touchAction: "none" }}>
+            style={{ position: "absolute", inset: 0, cursor: panAllowed ? "grab" : "default", touchAction: "none" }}>
             <div style={{ position: "absolute", left: "50%", top: "50%",
               transform: `translate(-50%,-50%) translate(${pan.x}px,${pan.y}px) scale(${zoom})`, transformOrigin: "center", transition: drag.current ? "none" : "transform .1s" }}>
               <PlanoBoard lotes={lotes} setLotes={setLotes} polys={polys} setPolys={setPolys} planoImg={planoView} planoOpacity={planoOpacity ?? 1}
@@ -254,6 +267,8 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
 
           {/* Zoom controls */}
           <div className="card poly-cell" style={{ position: "absolute", right: 16, bottom: 16, display: "flex", flexDirection: "column", padding: 4, gap: 2 }}>
+            <button className="btn btn-ghost" style={{ padding: 8 }} title={expand ? "Salir de pantalla completa (Esc)" : "Pantalla completa"} onClick={() => setExpand(v => !v)}><Icon name={expand ? "minimize" : "expand"} size={16} /></button>
+            <div style={{ height: 1, background: "var(--line)", margin: "2px 4px" }}></div>
             <button className="btn btn-ghost" style={{ padding: 8 }} onClick={() => setZoom(z => Math.min(2.2, z + 0.15))}><Icon name="plus" size={16} /></button>
             <div style={{ textAlign: "center", fontSize: 10.5, color: "var(--faint)", fontWeight: 700 }} className="mono">{Math.round(zoom * 100)}%</div>
             <button className="btn btn-ghost" style={{ padding: 8 }} onClick={() => setZoom(z => Math.max(0.5, z - 0.15))}><Icon name="minus" size={16} /></button>

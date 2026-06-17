@@ -41,6 +41,8 @@ const ICONS = {
   wallet: "M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z M16 12h4 M16 12a1.5 1.5 0 0 1 0-3h5v3 M3 7l13-4 2 4",
   trophy: "M8 21h8 M12 17v4 M7 4h10v5a5 5 0 0 1-10 0V4Z M5 4H3v2a3 3 0 0 0 3 3 M19 4h2v2a3 3 0 0 1-3 3",
   grip: "M9 5h.01 M9 12h.01 M9 19h.01 M15 5h.01 M15 12h.01 M15 19h.01",
+  expand: "M15 3h6v6 M9 21H3v-6 M21 3l-7 7 M3 21l7-7",
+  minimize: "M4 14h6v6 M20 10h-6V4 M14 10l7-7 M3 21l7-7",
 };
 
 function Icon({ name, size = 18, stroke = 1.8, style, className }) {

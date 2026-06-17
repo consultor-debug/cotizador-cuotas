@@ -113,11 +113,24 @@
   function subdivideBBox(pts, cols, rows) {
     const bb = bbox(pts), g = 2;
     const cw = (bb.w - (cols - 1) * g) / cols, ch = (bb.h - (rows - 1) * g) / rows;
+    // La numeración arranca en el vértice que el usuario colocó primero (pts[0]):
+    // anclamos en la esquina del bounding-box más cercana a ese vértice y
+    // recorremos alejándonos de ella, en vez de forzar siempre izq→der / arriba→abajo.
+    const o = pts[0];
+    const startRight  = Math.abs(o[0] - (bb.x + bb.w)) < Math.abs(o[0] - bb.x);
+    const startBottom = Math.abs(o[1] - (bb.y + bb.h)) < Math.abs(o[1] - bb.y);
+    // Eje principal de avance = el de la primera arista dibujada (pts[0]→pts[1]).
+    const e = pts[1] || pts[0];
+    const verticalFirst = Math.abs(e[1] - o[1]) > Math.abs(e[0] - o[0]);
     const cells = [];
-    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
-      const x = bb.x + i * (cw + g), y = bb.y + j * (ch + g);
+    const push = (i, j) => {
+      const ci = startRight ? (cols - 1 - i) : i;
+      const cj = startBottom ? (rows - 1 - j) : j;
+      const x = bb.x + ci * (cw + g), y = bb.y + cj * (ch + g);
       cells.push([[x, y], [x + cw, y], [x + cw, y + ch], [x, y + ch]]);
-    }
+    };
+    if (verticalFirst) { for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) push(i, j); }
+    else { for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) push(i, j); }
     return cells;
   }
   function subdivide(poly, cols, rows) {
@@ -234,12 +247,12 @@
         ctx.font = "700 8px 'Hanken Grotesk',sans-serif";
         ctx.textAlign = "center"; ctx.textBaseline = "middle";
         if (l.transparente) {
-          ctx.lineWidth = 2.4; ctx.strokeStyle = "#fff"; ctx.strokeText(String(l.numero), c[0], c[1]);
+          ctx.lineWidth = 2.4; ctx.strokeStyle = "#fff"; ctx.strokeText(String(l.codigo || l.numero), c[0], c[1]);
           ctx.fillStyle = "#2f3440";
         } else {
           ctx.fillStyle = e.text;
         }
-        ctx.fillText(String(l.numero), c[0], c[1]);
+        ctx.fillText(String(l.codigo || l.numero), c[0], c[1]);
       }
     });
 
