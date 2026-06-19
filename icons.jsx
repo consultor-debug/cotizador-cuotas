@@ -43,6 +43,8 @@ const ICONS = {
   grip: "M9 5h.01 M9 12h.01 M9 19h.01 M15 5h.01 M15 12h.01 M15 19h.01",
   expand: "M15 3h6v6 M9 21H3v-6 M21 3l-7 7 M3 21l7-7",
   minimize: "M4 14h6v6 M20 10h-6V4 M14 10l7-7 M3 21l7-7",
+  magnet: "M5 9v6a7 7 0 0 0 14 0V9 M9 9v6a3 3 0 0 0 6 0V9 M5 9h4 M15 9h4",
+  align: "M3 4v16 M9 7h8 M9 13h12 M9 19h6",
 };
 
 function Icon({ name, size = 18, stroke = 1.8, style, className }) {

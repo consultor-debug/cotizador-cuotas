@@ -11,6 +11,10 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [editMode, setEditMode] = useState(false);
   const [tool, setTool] = useState("select");
+  const [iman, setIman] = useState(() => STORE.load("planoIman", true));
+  useEffect(() => { STORE.save("planoIman", iman); }, [iman]);
+  const [alignApi, setAlignApi] = useState(null);   // estado de selección reportado por el lienzo
+  const [alignOpen, setAlignOpen] = useState(false); // panel "Alinear" desplegado
   const [vaciar, setVaciar] = useState(false);
   const [compact, setCompact] = useState(() => STORE.load("planoCompact", false));
   const [expand, setExpand] = useState(false);
@@ -241,7 +245,7 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
               transform: `translate(-50%,-50%) translate(${pan.x}px,${pan.y}px) scale(${zoom})`, transformOrigin: "center", transition: drag.current ? "none" : "transform .1s" }}>
               <PlanoBoard lotes={lotes} setLotes={setLotes} polys={polys} setPolys={setPolys} planoImg={planoView} planoOpacity={planoOpacity ?? 1}
                 selId={selId} setSel={setSel} matches={matches} active={qn || filtro !== "todos"}
-                editMode={editMode} tool={tool} setTool={setTool} toast={toast} />
+                editMode={editMode} tool={tool} setTool={setTool} snapOn={iman} onAlignApi={setAlignApi} toast={toast} />
             </div>
           </div>
 
@@ -253,14 +257,27 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
               <button onClick={() => setTool("draw")} className={"btn " + (tool === "draw" ? "btn-primary" : "btn-ghost")} style={{ fontSize: 13 }}><Icon name="plus" size={15} /> Dibujar lote</button>
               <button onClick={() => setTool("general")} className={"btn " + (tool === "general" ? "btn-primary" : "btn-ghost")} style={{ fontSize: 13 }}><Icon name="layers" size={15} /> Polígono general</button>
               <span style={{ width: 1, height: 22, background: "var(--line)", margin: "0 2px" }}></span>
+              <button onClick={() => setIman(v => !v)} className={"btn " + (iman ? "btn-primary" : "btn-ghost")} style={{ fontSize: 13 }} title={iman ? "Imán activo: los puntos se pegan a las esquinas vecinas. Mantén Alt para colocar libre." : "Imán desactivado: colocas los puntos donde quieras."}><Icon name="magnet" size={15} /> Imán {iman ? "on" : "off"}</button>
+              <div style={{ position: "relative" }}>
+                <button onClick={() => setAlignOpen(o => !o)} disabled={tool !== "select"}
+                  className={"btn " + (alignOpen ? "btn-primary" : "btn-ghost")} style={{ fontSize: 13, opacity: tool !== "select" ? .45 : 1 }}
+                  title="Alinear vértices o lotes, distribuir y fijar ángulos">
+                  <Icon name="align" size={15} /> Alinear
+                  {alignApi && (alignApi.lotsCount >= 2 || alignApi.vselCount >= 1) &&
+                    <span className="mono" style={{ marginLeft: 4, fontSize: 11, opacity: .85 }}>{alignApi.lotsCount >= 2 ? alignApi.lotsCount + " lotes" : alignApi.vselCount}</span>}
+                </button>
+                {alignOpen && tool === "select" && <AlignPanel api={alignApi} onClose={() => setAlignOpen(false)} />}
+              </div>
+              <span style={{ width: 1, height: 22, background: "var(--line)", margin: "0 2px" }}></span>
               <button onClick={() => setVaciar(true)} className="btn btn-ghost" style={{ fontSize: 13, color: "var(--bad-ink)" }}><Icon name="trash" size={15} /> Mapear desde cero</button>
               <span style={{ width: 1, height: 22, background: "var(--line)", margin: "0 2px" }}></span>
-              <span style={{ fontSize: 12, color: "var(--muted)", paddingRight: 6, maxWidth: 280 }}>
+              <span style={{ fontSize: 12, color: "var(--muted)", paddingRight: 6, maxWidth: 300 }}>
                 {tool === "draw"
-                  ? "Click para añadir vértices · cierra en el 1° punto, doble-clic o Enter."
+                  ? (iman ? "Click para añadir vértices (se imantan a las esquinas vecinas · Alt = libre). Cierra en el 1° punto, doble-clic o Enter."
+                          : "Click para añadir vértices libremente. Cierra en el 1° punto, doble-clic o Enter.")
                   : tool === "general"
                   ? "Dibuja un contorno (ej. una manzana). Al cerrarlo podrás Subdividirlo en lotes."
-                  : "Arrastra el lote o sus vértices (círculos). Arrastra los rombos para curvar una arista (doble-clic la endereza). Doble-clic en un vértice lo elimina."}
+                  : "Arrastra el lote o sus vértices. Shift+clic en varios vértices o en varios lotes → botón Alinear (filas/columnas, distribuir, ángulos). " + (iman ? "Se imantan a las esquinas vecinas (Alt = libre). " : "") + "Arrastra los rombos para curvar (doble-clic endereza). Doble-clic en un vértice lo elimina."}
               </span>
             </div>
           )}
@@ -379,6 +396,85 @@ function ReservaModal({ lote, clientes, cond, moneda, onClose, onConfirm }) {
 }
 
 const seg = { padding: "8px 16px", display: "flex", gap: 6, alignItems: "center" };
+
+// Panel de alineación arrastrable junto a la barra de edición.
+// Modo LOTES (2+ lotes con Shift+clic) → alinea filas/columnas completas.
+// Modo VÉRTICES (1 lote) → fija ángulo de un vértice y alinea/distribuye vértices.
+function AlignPanel({ api, onClose }) {
+  const Glyph = window.AlignGlyph;
+  const lots = !!api && api.lotsCount >= 2;
+  const vcount = api ? api.vselCount : 0;
+  const count = lots ? api.lotsCount : vcount;
+  const enough = count >= 2;
+  const canDist = count >= 3;
+  const apply = (t) => { if (!api) return; (lots ? api.alignLots : api.align)(t); };
+
+  const [ang, setAng] = useState(api && api.angle != null ? api.angle : 90);
+  useEffect(() => { if (api && api.angle != null) setAng(api.angle); }, [api && api.angle]);
+  const showAngle = !lots && vcount === 1 && api && api.angle != null;
+
+  const Item = ({ type, label, disabled }) => (
+    <button className="btn btn-ghost" disabled={disabled}
+      style={{ width: "100%", justifyContent: "flex-start", gap: 10, padding: "7px 10px", fontSize: 13, opacity: disabled ? .4 : 1 }}
+      onClick={() => apply(type)}>
+      <Glyph type={type} /> {label}
+    </button>
+  );
+  const Head = ({ children }) => (
+    <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--faint)", padding: "9px 10px 3px" }}>{children}</div>
+  );
+  const presets = [45, 90, 120, 135];
+  return (
+    <div className="card pop poly-cell" style={{ position: "absolute", top: "calc(100% + 8px)", left: 0, width: 250, padding: 6, boxShadow: "var(--shadow-lg)", zIndex: 30, whiteSpace: "normal", maxHeight: "70vh", overflowY: "auto" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 6px 6px" }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700 }}>{lots ? "Alinear lotes" : "Alinear vértices"}</span>
+        <span style={{ fontSize: 11, color: "var(--faint)" }}>{count} sel.</span>
+      </div>
+
+      {!enough && !showAngle && (
+        <div style={{ fontSize: 12, color: "var(--muted)", padding: "4px 8px 8px", lineHeight: 1.5 }}>
+          <b style={{ color: "var(--ink-2)" }}>Shift + clic</b> en los <b>círculos</b> de un lote para alinear sus vértices, o en <b>varios lotes</b> para alinear una fila/columna completa.
+        </div>
+      )}
+
+      {showAngle && (
+        <div style={{ padding: "2px 6px 8px", borderBottom: enough || count >= 1 ? "1px solid var(--line)" : "none", marginBottom: 4 }}>
+          <Head>Ángulo del vértice</Head>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 4px" }}>
+            <div className="field field-mono" style={{ height: 36, flex: 1 }}>
+              <input className="mono" type="number" min={1} max={359} value={ang}
+                onChange={e => setAng(Math.max(1, Math.min(359, Number(e.target.value) || 0)))}
+                onKeyDown={e => { if (e.key === "Enter") api.setAngle(ang); }}
+                style={{ fontWeight: 700, fontSize: 14 }} />
+              <span style={{ color: "var(--faint)", fontSize: 12.5, paddingRight: 4 }}>°</span>
+            </div>
+            <button className="btn btn-primary" style={{ padding: "8px 12px", fontSize: 12.5 }} onClick={() => api.setAngle(ang)}>Aplicar</button>
+          </div>
+          <div style={{ display: "flex", gap: 5, padding: "6px 4px 0", flexWrap: "wrap" }}>
+            {presets.map(d => (
+              <button key={d} className="btn btn-ghost" style={{ padding: "4px 9px", fontSize: 12 }}
+                onClick={() => { setAng(d); api.setAngle(d); }}>{d}°</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Head>Horizontal</Head>
+      <Item type="left"  label="Alinear a la izquierda" disabled={!enough} />
+      <Item type="cx"    label="Alinear en el centro"   disabled={!enough} />
+      <Item type="right" label="Alinear a la derecha"   disabled={!enough} />
+      <div style={{ height: 1, background: "var(--line)", margin: "5px 4px" }}></div>
+      <Head>Vertical</Head>
+      <Item type="top"    label="Alinear arriba" disabled={!enough} />
+      <Item type="cy"     label="Alinear al medio" disabled={!enough} />
+      <Item type="bottom" label="Alinear abajo" disabled={!enough} />
+      <div style={{ height: 1, background: "var(--line)", margin: "5px 4px" }}></div>
+      <Head>Distribuir</Head>
+      <Item type="distX" label="Distribuir horizontalmente" disabled={!canDist} />
+      <Item type="distY" label="Distribuir verticalmente" disabled={!canDist} />
+    </div>
+  );
+}
 
 function ExportMenu({ polys, planoImg, planoOpacity = 1, lotes, brand, toast }) {
   const [open, setOpen] = useState(false);
