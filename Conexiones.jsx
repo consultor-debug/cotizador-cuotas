@@ -1,3 +1,10 @@
+/*!
+ * Cotizador de Cuotas
+ * Copyright (c) 2026 Luis D.. Todos los derechos reservados.
+ * Software propietario. Prohibida su copia, distribución o uso sin
+ * autorización escrita del titular. Ver archivo LICENSE.
+ */
+
 /* =========================================================
    CONEXIONES — ranking de actividad por cuenta
    Mide los inicios de sesión registrados. Visible solo para

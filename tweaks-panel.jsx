@@ -1,3 +1,10 @@
+/*!
+ * Cotizador de Cuotas
+ * Copyright (c) 2026 Luis D.. Todos los derechos reservados.
+ * Software propietario. Prohibida su copia, distribución o uso sin
+ * autorización escrita del titular. Ver archivo LICENSE.
+ */
+
 // @ds-adherence-ignore -- omelette starter scaffold (raw elements/hex/px by design)
 
 /* BEGIN USAGE */

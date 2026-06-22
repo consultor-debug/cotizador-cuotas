@@ -1,3 +1,10 @@
+/*!
+ * Cotizador de Cuotas
+ * Copyright (c) 2026 Luis D.. Todos los derechos reservados.
+ * Software propietario. Prohibida su copia, distribución o uso sin
+ * autorización escrita del titular. Ver archivo LICENSE.
+ */
+
 /* ============================================================
    PLAN — geometría de polígonos, sembrado desde la grilla
    y render del plano a <canvas> para exportar (PNG / PDF).

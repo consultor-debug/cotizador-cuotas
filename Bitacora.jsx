@@ -1,3 +1,10 @@
+/*!
+ * Cotizador de Cuotas
+ * Copyright (c) 2026 Luis D.. Todos los derechos reservados.
+ * Software propietario. Prohibida su copia, distribución o uso sin
+ * autorización escrita del titular. Ver archivo LICENSE.
+ */
+
 /* =========================================================
    BITÁCORA — registro de auditoría de acciones del sistema.
    Asesor ve lo suyo; gerencia/jefatura (verTodo) ve todo.

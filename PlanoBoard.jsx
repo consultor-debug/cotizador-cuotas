@@ -1,3 +1,10 @@
+/*!
+ * Cotizador de Cuotas
+ * Copyright (c) 2026 Luis D.. Todos los derechos reservados.
+ * Software propietario. Prohibida su copia, distribución o uso sin
+ * autorización escrita del titular. Ver archivo LICENSE.
+ */
+
 /* =========================================================
    PLANO BOARD — lienzo poligónico (con curvas y subdivisión)
    · Fondo: plano subido (img) o esquemático
