@@ -13,7 +13,7 @@
      "polígono general" y subdividirlo en una grilla de lotes
    ========================================================= */
 
-function PlanoBoard({ lotes, setLotes, polys, setPolys, planoImg, planoOpacity = 1, selId, setSel,
+function PlanoBoard({ lotes, setLotes, polys, setPolys, planoImg, planoOpacity = 1, etapa = "1RA ETAPA", selId, setSel,
                       matches, active, editMode, tool, setTool, snapOn = true, onAlignApi, toast, moneda, zoom = 1 }) {
   const svgRef = useRef(null);
   const [draft, setDraft] = useState([]);
@@ -402,6 +402,26 @@ function PlanoBoard({ lotes, setLotes, polys, setPolys, planoImg, planoOpacity =
 
   const sel = polys.find(p => p.loteId === selId);
 
+  // Aristas únicas (sin duplicar el borde compartido entre dos lotes vecinos).
+  // Las aristas curvas se omiten aquí: las dibuja el contorno del propio polígono.
+  const dedupEdges = useMemo(() => {
+    const r = v => Math.round(v * 2) / 2;
+    const seen = new Set(); const out = [];
+    polys.forEach(p => {
+      if (p.general) return;
+      const pts = p.pts, n = pts.length;
+      for (let i = 0; i < n; i++) {
+        if (p.curves && p.curves[i]) continue;
+        const a = pts[i], b = pts[(i + 1) % n];
+        const ka = r(a[0]) + "," + r(a[1]), kb = r(b[0]) + "," + r(b[1]);
+        const key = ka < kb ? ka + "|" + kb : kb + "|" + ka;
+        if (seen.has(key)) continue;
+        seen.add(key); out.push([a, b]);
+      }
+    });
+    return out;
+  }, [polys]);
+
   return (
     <div style={{ position: "relative", width: 1240, height: 684 }}>
       {planoImg
@@ -414,14 +434,14 @@ function PlanoBoard({ lotes, setLotes, polys, setPolys, planoImg, planoOpacity =
         <rect x={0} y={0} width={1240} height={684} fill="transparent"
           onPointerMove={bgMove} onClick={bgClick} onDoubleClick={() => draft.length >= 3 && cerrarDraft()} />
 
+        {/* 1 — Rellenos (sin borde; el borde se dibuja una sola vez en la capa siguiente) */}
         {polys.map(p => {
           const isSel = p.loteId === selId;
           const inMulti = lotsSel.has(p.loteId);
           if (p.general) {
             return (
-              <path key={p.loteId} d={PLAN.polyPath(p.pts, p.curves)}
-                fill="color-mix(in srgb, var(--primary) 8%, transparent)"
-                stroke="var(--primary)" strokeWidth={isSel ? 2.4 : 1.6} strokeDasharray="7 5"
+              <path key={"f" + p.loteId} d={PLAN.polyPath(p.pts, p.curves)}
+                fill="color-mix(in srgb, var(--primary) 8%, transparent)" stroke="none"
                 onPointerDown={(ev) => polyDown(ev, p)} onClick={() => { if (!drawing) setSel(p.loteId); }}
                 style={{ cursor: "pointer" }} />
             );
@@ -429,25 +449,66 @@ function PlanoBoard({ lotes, setLotes, polys, setPolys, planoImg, planoOpacity =
           const l = lmap[p.loteId]; if (!l) return null;
           const e = LIB.ESTADOS[l.estado] || LIB.ESTADOS.disponible;
           const transp = !!l.transparente;
+          const taken = l.estado === "separado" || l.estado === "vendido" || l.estado === "no_disponible";
+          const on = !active || matches(l);
+          return (
+            <path key={"f" + p.loteId} d={PLAN.polyPath(p.pts, p.curves)} opacity={on ? 1 : 0.2}
+              fill={transp ? "transparent" : (inMulti ? "color-mix(in srgb, var(--primary) 22%, " + e.fill + ")" : e.fill)}
+              fillOpacity={transp ? undefined : (taken ? Math.max(planoOpacity, 0.5) : planoOpacity)}
+              stroke="none"
+              onPointerDown={(ev) => polyDown(ev, p)} onClick={() => { if (!drawing) setSel(p.loteId); }}
+              style={{ cursor: "pointer" }} />
+          );
+        })}
+
+        {/* 2 — Bordes: una sola línea por arista compartida + contornos de color para lotes destacados */}
+        <g style={{ pointerEvents: "none" }}>
+          {dedupEdges.map((seg, i) => (
+            <line key={"e" + i} x1={seg[0][0]} y1={seg[0][1]} x2={seg[1][0]} y2={seg[1][1]}
+              stroke="#7bbf96" strokeWidth={0.8} strokeLinecap="round" />
+          ))}
+          {polys.map(p => {
+            if (p.general) {
+              return <path key={"o" + p.loteId} d={PLAN.polyPath(p.pts, p.curves)} fill="none"
+                stroke="var(--primary)" strokeWidth={p.loteId === selId ? 2.4 : 1.6} strokeDasharray="7 5" />;
+            }
+            const l = lmap[p.loteId]; if (!l) return null;
+            const isSel = p.loteId === selId, inMulti = lotsSel.has(p.loteId);
+            const e = LIB.ESTADOS[l.estado] || LIB.ESTADOS.disponible;
+            const transp = !!l.transparente;
+            const taken = l.estado === "separado" || l.estado === "vendido" || l.estado === "no_disponible";
+            const hasCurve = p.curves && Object.keys(p.curves).length > 0;
+            if (!(isSel || inMulti || taken || transp || hasCurve)) return null;   // los disponibles ya quedan dibujados por la grilla
+            const on = !active || matches(l);
+            const stroke = (isSel || inMulti) ? "var(--primary)" : (transp ? "rgba(55,60,72,.55)" : (taken ? e.text : "#7bbf96"));
+            const sw = (isSel || inMulti) ? 2.2 : (taken ? 1.3 : 0.8);
+            return (
+              <path key={"o" + p.loteId} d={PLAN.polyPath(p.pts, p.curves)} fill="none" opacity={on ? 1 : 0.2}
+                stroke={stroke} strokeWidth={sw} strokeDasharray={transp && !isSel ? "5 4" : undefined} strokeLinejoin="round" />
+            );
+          })}
+        </g>
+
+        {/* 3 — Etiquetas + resalte de oferta */}
+        {polys.map(p => {
+          if (p.general) return null;
+          const l = lmap[p.loteId]; if (!l) return null;
+          const isSel = p.loteId === selId;
+          const e = LIB.ESTADOS[l.estado] || LIB.ESTADOS.disponible;
+          const transp = !!l.transparente;
           const on = !active || matches(l);
           const c = PLAN.centroid(p.pts), bb = PLAN.bbox(p.pts);
           return (
-            <g key={p.loteId} opacity={on ? 1 : 0.2} style={{ cursor: "pointer" }}>
-              <path d={PLAN.polyPath(p.pts, p.curves)} fill={transp ? "transparent" : (inMulti ? "color-mix(in srgb, var(--primary) 22%, " + e.fill + ")" : e.fill)}
-                fillOpacity={transp ? undefined : planoOpacity}
-                stroke={(isSel || inMulti) ? "var(--primary)" : (transp ? "rgba(55,60,72,.55)" : e.stroke)} strokeWidth={(isSel || inMulti) ? 2.4 : 1}
-                strokeDasharray={transp && !isSel ? "5 4" : undefined}
-                onPointerDown={(ev) => polyDown(ev, p)}
-                onClick={() => { if (!drawing) setSel(p.loteId); }} />
+            <g key={"t" + p.loteId} opacity={on ? 1 : 0.2} style={{ pointerEvents: "none" }}>
               {bb.h > 16 && bb.w > 12 && (
                 <text x={c[0]} y={c[1]} textAnchor="middle" dominantBaseline="middle"
                   fontSize={5} fontWeight={800}
                   fill={isSel ? "var(--primary)" : e.text}
                   stroke="#fff" strokeWidth={2} paintOrder="stroke" strokeLinejoin="round"
-                  style={{ pointerEvents: "none", userSelect: "none" }}>{l.codigo || l.numero}</text>
+                  style={{ userSelect: "none" }}>{l.codigo || l.numero}</text>
               )}
               {!editMode && l.oferta && l.estado === "disponible" && on && !transp && (
-                <path d={PLAN.polyPath(p.pts, p.curves)} fill="none" stroke="#b3324a" strokeWidth={2.4} strokeLinejoin="round" style={{ pointerEvents: "none" }}>
+                <path d={PLAN.polyPath(p.pts, p.curves)} fill="none" stroke="#b3324a" strokeWidth={2.4} strokeLinejoin="round">
                   <animate attributeName="opacity" values="1;.28;1" dur="1.6s" repeatCount="indefinite" />
                 </path>
               )}
@@ -511,8 +572,8 @@ function PlanoBoard({ lotes, setLotes, polys, setPolys, planoImg, planoOpacity =
         <PriceTag poly={sel} lote={lmap[sel.loteId]} moneda={moneda} zoom={zoom} onClose={() => setSel(null)} />
       )}
 
-      {nuevo && <NuevoLoteModal pts={nuevo} lotes={lotes} onCancel={() => setNuevo(null)} onCreate={crearLote} />}
-      {subdiv && <SubdividirModal poly={subdiv} lotes={lotes} onCancel={() => setSubdiv(null)} onApply={(opts) => aplicarSubdiv(subdiv, opts)} />}
+      {nuevo && <NuevoLoteModal pts={nuevo} lotes={lotes} etapa={etapa} onCancel={() => setNuevo(null)} onCreate={crearLote} />}
+      {subdiv && <SubdividirModal poly={subdiv} lotes={lotes} etapa={etapa} onCancel={() => setSubdiv(null)} onApply={(opts) => aplicarSubdiv(subdiv, opts)} />}
     </div>
   );
 }
@@ -693,7 +754,7 @@ function AlignMenu({ vselCount, onAlign, onClose }) {
   );
 }
 
-function NuevoLoteModal({ pts, lotes, onCancel, onCreate }) {
+function NuevoLoteModal({ pts, lotes, etapa = "1RA ETAPA", onCancel, onCreate }) {
   const usados = lotes.filter(l => l.manzana === "P").map(l => l.numero);
   const sugNum = (usados.length ? Math.max(...usados) : 0) + 1;
   const areaEst = PLAN.estimaArea(pts);
@@ -736,7 +797,7 @@ function NuevoLoteModal({ pts, lotes, onCancel, onCreate }) {
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
         <button className="btn" onClick={onCancel}>Cancelar</button>
         <button className="btn btn-primary" disabled={dup || !manzana.trim()} onClick={() => onCreate({
-          id, manzana: manzana.toUpperCase().trim(), numero, etapa: "1RA ETAPA", tipologia,
+          id, manzana: manzana.toUpperCase().trim(), numero, etapa, tipologia,
           area: areaEst, frente: frenteEst, fondo: fondoEst, orientacion: "Norte", precioLista: precio,
         })}><Icon name="plus" size={15} /> Crear lote</button>
       </div>
@@ -744,7 +805,7 @@ function NuevoLoteModal({ pts, lotes, onCancel, onCreate }) {
   );
 }
 
-function SubdividirModal({ poly, lotes, onCancel, onApply }) {
+function SubdividirModal({ poly, lotes, etapa = "1RA ETAPA", onCancel, onApply }) {
   const letrasUsadas = [...new Set(lotes.map(l => l.manzana))];
   const sugManzana = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").find(c => !letrasUsadas.includes(c)) || "Z";
   const [manzana, setManzana] = useState(sugManzana);
@@ -805,7 +866,7 @@ function SubdividirModal({ poly, lotes, onCancel, onApply }) {
         <span style={{ fontSize: 13, color: "var(--muted)" }}>Generará <b className="mono" style={{ color: "var(--ink)" }}>{total}</b> lotes · <span className="mono">{mzClean}{inicio}–{mzClean}{inicio + total - 1}</span></span>
         <div style={{ display: "flex", gap: 10 }}>
           <button className="btn" onClick={onCancel}>Cancelar</button>
-          <button className="btn btn-primary" disabled={!manzana.trim() || total < 1} onClick={() => onApply({ manzana: mzClean, cols, rows, etapa: "1RA ETAPA", precio, inicio, frente, fondo, ladoIzq, ladoDer })}><Icon name="check" size={15} /> Generar {total} lotes</button>
+          <button className="btn btn-primary" disabled={!manzana.trim() || total < 1} onClick={() => onApply({ manzana: mzClean, cols, rows, etapa, precio, inicio, frente, fondo, ladoIzq, ladoDer })}><Icon name="check" size={15} /> Generar {total} lotes</button>
         </div>
       </div>
     </Modal>

@@ -10,7 +10,7 @@
    lienzo poligónico (PlanoBoard) + panel Cotizador.
    ========================================================= */
 
-function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoMode, setPlanoMode, planoOpacity, setPlanoOpacity, cond, asesor, moneda, perms, brand, clientes, onEnviar, onReservar, onCerrarReserva, onLog, toast }) {
+function Plano({ lotes, setLotes, polys, setPolys, planos, setPlanos, planoOpacity, setPlanoOpacity, cond, asesor, moneda, perms, brand, clientes, onEnviar, onReservar, onCerrarReserva, onLog, toast }) {
   const [selId, setSel] = useState(null);
   const [filtro, setFiltro] = useState("todos");
   const [q, setQ] = useState("");
@@ -135,13 +135,43 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
     return () => { clearTimeout(t); window.removeEventListener("keydown", onKey); };
   }, [expand]);
 
+  // ---- Etapas: cada una con su propio plano de fondo ----
+  const [extraEtapas, setExtraEtapas] = useState(() => STORE.load("planoExtraEtapas", []));
+  useEffect(() => { STORE.save("planoExtraEtapas", extraEtapas); }, [extraEtapas]);
+  const etapas = useMemo(() => {
+    const etN = e => { const m = String(e).match(/\d+/); return m ? +m[0] : 999; };
+    const all = [...lotes.map(l => l.etapa), ...Object.keys(planos || {}), ...extraEtapas].filter(Boolean);
+    return [...new Set(all)].sort((a, b) => etN(a) - etN(b) || String(a).localeCompare(b));
+  }, [lotes, planos, extraEtapas]);
+  function crearEtapa() {
+    const ord = ["1RA", "2DA", "3RA", "4TA", "5TA", "6TA", "7MA", "8VA", "9NA", "10MA"];
+    const sug = (ord[etapas.length] || (etapas.length + 1) + "A") + " ETAPA";
+    const name = (window.prompt("Nombre de la nueva etapa (ej. \"4TA ETAPA\"):", sug) || "").trim().toUpperCase();
+    if (!name) return;
+    if (etapas.includes(name)) { toast("La etapa \"" + name + "\" ya existe", "warn"); setEtapaSel(name); return; }
+    setExtraEtapas(xs => [...new Set([...xs, name])]);
+    setEtapaSel(name);
+    toast("Etapa \"" + name + "\" creada · sube su plano y dibuja sus lotes", "ok");
+  }
+  const [etapaSel, setEtapaSel] = useState(() => STORE.load("planoEtapa", null));
+  useEffect(() => {
+    if (!etapas.length) { if (etapaSel) setEtapaSel(null); return; }
+    if (!etapaSel || !etapas.includes(etapaSel)) setEtapaSel(etapas[0]);
+  }, [etapas]);
+  useEffect(() => { if (etapaSel) STORE.save("planoEtapa", etapaSel); }, [etapaSel]);
+  useEffect(() => { setSel(null); }, [etapaSel]);   // cambiar de etapa deselecciona
+
+  const lotesEtapa = useMemo(() => lotes.filter(l => l.etapa === etapaSel), [lotes, etapaSel]);
+  const idsEtapa = useMemo(() => new Set(lotesEtapa.map(l => l.id)), [lotesEtapa]);
+  const polysView = useMemo(() => polys.filter(p => p.general || idsEtapa.has(p.loteId)), [polys, idsEtapa]);
+
   const counts = useMemo(() => ({
-    todos: lotes.length,
-    disponible: lotes.filter(l => l.estado === "disponible").length,
-    separado: lotes.filter(l => l.estado === "separado").length,
-    vendido: lotes.filter(l => l.estado === "vendido").length,
-    no_disponible: lotes.filter(l => l.estado === "no_disponible").length,
-  }), [lotes]);
+    todos: lotesEtapa.length,
+    disponible: lotesEtapa.filter(l => l.estado === "disponible").length,
+    separado: lotesEtapa.filter(l => l.estado === "separado").length,
+    vendido: lotesEtapa.filter(l => l.estado === "vendido").length,
+    no_disponible: lotesEtapa.filter(l => l.estado === "no_disponible").length,
+  }), [lotesEtapa]);
 
   const sel = lotes.find(l => l.id === selId);
 
@@ -219,9 +249,8 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
     rd.onload = async () => {
       let durl = rd.result;
       try { durl = await PLAN.downscaleDataURL(rd.result); } catch (e) { /* usar original */ }
-      setPlanoImg(durl);
-      setPlanoMode("real");
-      toast("Plano \"" + f.name + "\" cargado · dibuja los lotes encima", "ok");
+      setPlanos(m => ({ ...m, [etapaSel]: durl }));
+      toast("Plano de " + etapaSel + " cargado · dibuja los lotes encima", "ok");
       fit();
     };
     rd.readAsDataURL(f);
@@ -233,9 +262,33 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
     toast("Plano vaciado · empieza a mapear con Polígono general o Dibujar lote", "ok");
   }
 
-  const hasPlano = !!planoImg;
-  const showReal = planoMode === "real" && hasPlano;
-  const planoView = showReal ? planoImg : null; // lo que se muestra/exporta (la imagen guardada se conserva siempre)
+  // Uniformizar bordes: funde las esquinas vecinas de los lotes de la etapa actual a
+  // una posición compartida (promedio, redondeado a 0.5). Corrige los desfases tipo
+  // "XX vs XX.05" para que filas/columnas se vean parejas y los lados compartidos coincidan.
+  function uniformizarBordes() {
+    const target = polys.filter(p => !p.general && idsEtapa.has(p.loteId));
+    if (target.length < 2) { toast("Se necesitan al menos 2 lotes en esta etapa", "warn"); return; }
+    const tol = 4;                              // vértices más cercanos que esto se funden
+    const snap = v => Math.round(v * 2) / 2;    // a paso de 0.5
+    const clusters = [];
+    const find = pt => {
+      let best = null, bd = tol;
+      for (const c of clusters) { const d = Math.hypot(c.x - pt[0], c.y - pt[1]); if (d <= bd) { bd = d; best = c; } }
+      return best;
+    };
+    target.forEach(p => p.pts.forEach(pt => {
+      const c = find(pt);
+      if (!c) clusters.push({ x: pt[0], y: pt[1], sx: pt[0], sy: pt[1], n: 1 });
+      else { c.sx += pt[0]; c.sy += pt[1]; c.n++; c.x = c.sx / c.n; c.y = c.sy / c.n; }
+    }));
+    const snapPt = pt => { const c = find(pt); return c ? [snap(c.x), snap(c.y)] : [snap(pt[0]), snap(pt[1])]; };
+    setPolys(ps => ps.map(p => (p.general || !idsEtapa.has(p.loteId)) ? p : { ...p, pts: p.pts.map(snapPt) }));
+    setSel(null);
+    toast("Bordes uniformizados · esquinas vecinas alineadas en " + etapaSel, "ok");
+  }
+
+  const planoView = (planos && planos[etapaSel]) || null; // plano de fondo de la etapa actual
+  const hasPlano = !!planoView;
 
   const chips = [
     { k: "todos", label: "Todos", c: counts.todos },
@@ -255,37 +308,36 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
           </button>
           {compact ? (
             <div style={{ fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              Plano del proyecto <span style={{ color: "var(--muted)", fontSize: 13.5, fontWeight: 500 }}>· {counts.disponible} disponibles</span>
+              Plano del proyecto <span style={{ color: "var(--muted)", fontSize: 13.5, fontWeight: 500 }}>· {etapaSel || "—"} · {counts.disponible} disponibles</span>
             </div>
           ) : (
             <div>
               <h1 style={{ fontSize: 34 }}>Plano del proyecto</h1>
               <div style={{ color: "var(--muted)", marginTop: 6, fontSize: 14.5 }}>
-                {brand.nombre} · {counts.todos} lotes · {counts.disponible} disponibles
+                {brand.nombre} · {etapaSel || "—"} · {counts.todos} lotes · {counts.disponible} disponibles
               </div>
             </div>
           )}
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <div className="segtabs" style={{ padding: 3 }}>
-            <button className={showReal ? "" : "on"} style={seg} onClick={() => setPlanoMode("esquema")}><Icon name="layers" size={15} /> Esquema</button>
-            <button
-              className={showReal ? "on" : ""}
-              style={{ ...seg, opacity: !hasPlano && !perms.editarPlano ? 0.4 : 1 }}
-              disabled={!hasPlano && !perms.editarPlano}
-              title={!hasPlano ? "El administrador aún no ha subido el plano real" : ""}
-              onClick={() => { if (hasPlano) setPlanoMode("real"); else if (perms.editarPlano) fileRef.current.click(); }}>
-              <Icon name="pin" size={15} /> Plano real
-            </button>
+          <div className="field" style={{ height: 40, width: 232, paddingRight: 8 }} title="Cada etapa tiene su propio plano de fondo">
+            <Icon name="layers" size={15} style={{ color: "var(--faint)" }} />
+            <select value={etapaSel || ""} onChange={e => { if (e.target.value === "__new__") crearEtapa(); else setEtapaSel(e.target.value); }}
+              style={{ border: 0, outline: 0, background: "transparent", flex: 1, fontSize: 14.5, fontWeight: 600, color: "var(--ink)", appearance: "none", cursor: "pointer", height: "100%" }}>
+              {etapas.length === 0 && <option value="">Sin etapas</option>}
+              {etapas.map(et => <option key={et} value={et}>{et}{planos && planos[et] ? "  · con plano" : ""}</option>)}
+              {perms.editarPlano && <option value="__new__">＋ Crear nueva etapa…</option>}
+            </select>
+            <Icon name="chevDown" size={16} style={{ color: "var(--faint)", pointerEvents: "none" }} />
           </div>
           <input ref={fileRef} type="file" accept="image/*,.svg" onChange={onFile} style={{ display: "none" }} />
-          {perms.editarPlano && <button className="btn" onClick={() => fileRef.current.click()}><Icon name="upload" size={15} /> {hasPlano ? "Cambiar plano" : "Subir plano"}</button>}
+          {perms.editarPlano && <button className="btn" onClick={() => fileRef.current.click()} title={(hasPlano ? "Cambiar" : "Subir") + " el plano de fondo de " + (etapaSel || "esta etapa")}><Icon name="upload" size={15} /> {hasPlano ? "Cambiar plano" : "Subir plano"}</button>}
           {perms.editarPlano && (
             <button className={"btn" + (editMode ? " btn-primary" : "")} onClick={() => { setEditMode(v => !v); setTool("select"); }}>
               <Icon name="edit" size={15} /> {editMode ? "Listo" : "Editar polígonos"}
             </button>
           )}
-          <ExportMenu polys={polys} planoImg={planoView} planoOpacity={planoOpacity ?? 1} lotes={lotes} brand={brand} toast={toast} />
+          <ExportMenu polys={polysView} planoImg={planoView} planoOpacity={planoOpacity ?? 1} lotes={lotesEtapa} brand={brand} toast={toast} />
         </div>
       </div>
 
@@ -331,7 +383,7 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
               style={{ position: "absolute", inset: 0, cursor: panAllowed ? "grab" : "default", touchAction: "none" }}>
               <div style={{ position: "absolute", left: "50%", top: "50%",
                 transform: `translate(-50%,-50%) translate(${pan.x}px,${pan.y}px) scale(${zoom})`, transformOrigin: "center", transition: drag.current ? "none" : "transform .1s" }}>
-                <PlanoBoard lotes={lotes} setLotes={setLotes} polys={polys} setPolys={setPolys} planoImg={planoView} planoOpacity={planoOpacity ?? 1}
+                <PlanoBoard lotes={lotes} setLotes={setLotes} polys={polysView} setPolys={setPolys} planoImg={planoView} planoOpacity={planoOpacity ?? 1} etapa={etapaSel}
                   selId={selId} setSel={setSel} matches={matches} active={qn || filtro !== "todos"}
                   editMode={editMode} tool={tool} setTool={setTool} snapOn={iman} onAlignApi={setAlignApi} toast={toast} moneda={moneda} zoom={zoom} />
               </div>
@@ -379,6 +431,7 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
                   </button>
                   {alignOpen && tool === "select" && <AlignPanel api={alignApi} anchorRef={alignBtnRef} onClose={() => setAlignOpen(false)} />}
                 </div>
+                <button onClick={uniformizarBordes} className="btn btn-ghost" style={{ fontSize: 13, flexShrink: 0 }} title="Funde las esquinas vecinas a una posición compartida. Corrige desfases mínimos (XX vs XX.05) para que los lotes se vean parejos y los lados compartidos coincidan."><Icon name="grid" size={15} /> Uniformizar</button>
                 <span style={{ width: 1, height: 22, background: "var(--line)", margin: "0 2px", flexShrink: 0 }}></span>
                 <button onClick={() => setVaciar(true)} className="btn btn-ghost" style={{ fontSize: 13, color: "var(--bad-ink)", flexShrink: 0 }}><Icon name="trash" size={15} /> Mapear desde cero</button>
                 <span style={{ flex: 1 }}></span>

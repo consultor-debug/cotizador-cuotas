@@ -70,7 +70,7 @@ function App() {
   const [reservas, setReservas] = useState([]);
   const [conexiones, setConexiones] = useState([]);
   const [logs, setLogs] = useState([]);
-  const [planoImg, setPlanoImg] = useState(null);
+  const [planoImg, setPlanoImg] = useState({});   // mapa { [etapa]: dataURL }
 
   // Preferencias locales (localStorage)
   const [planoMode, setPlanoMode] = useState(() => STORE.load("planoMode", "esquema"));
@@ -111,7 +111,15 @@ function App() {
     if (profs) setAsesores(profs);
     if (conxs) setConexiones(conxs);
     setProfile((profs || []).find(p => p.id === uid) || null);
-    if (assetData && assetData.planoImg) setPlanoImg(assetData.planoImg);
+    if (assetData && assetData.planoImg) {
+      const pv = assetData.planoImg;
+      if (typeof pv === "string") {   // migración: plano único → plano de la 1ra etapa
+        const ls = (mainData && mainData.lotes) || [];
+        const etN = e => { const m = String(e).match(/\d+/); return m ? +m[0] : 999; };
+        const first = [...new Set(ls.map(l => l.etapa).filter(Boolean))].sort((a, b) => etN(a) - etN(b))[0] || "1RA ETAPA";
+        setPlanoImg({ [first]: pv });
+      } else setPlanoImg(pv || {});
+    }
     if (mainData && Object.keys(mainData).length > 0) {
       if (mainData.lotes) setLotes(mainData.lotes);
       if (mainData.polys) setPolys(mainData.polys);
@@ -409,7 +417,7 @@ function App() {
 
       {/* Contenido */}
       <main style={{ flex: 1, minHeight: 0 }}>
-        {route === "plano" && <Plano lotes={lotes} setLotes={setLotes} polys={polys} setPolys={setPolys} planoImg={planoImg} setPlanoImg={setPlanoImg} planoMode={planoMode} setPlanoMode={setPlanoMode} planoOpacity={planoOpacity} setPlanoOpacity={setPlanoOpacity} cond={cond} asesor={asesor} moneda={moneda} perms={perms} brand={brand} clientes={clientes} onEnviar={setQuote} onReservar={crearReserva} onCerrarReserva={cerrarReservaDeLote} onLog={registrarLog} toast={toast} />}
+        {route === "plano" && <Plano lotes={lotes} setLotes={setLotes} polys={polys} setPolys={setPolys} planos={planoImg} setPlanos={setPlanoImg} planoOpacity={planoOpacity} setPlanoOpacity={setPlanoOpacity} cond={cond} asesor={asesor} moneda={moneda} perms={perms} brand={brand} clientes={clientes} onEnviar={setQuote} onReservar={crearReserva} onCerrarReserva={cerrarReservaDeLote} onLog={registrarLog} toast={toast} />}
         {route === "tablero" && <Tablero lotes={lotes} cotizaciones={cotizaciones} reservas={reservas} asesores={[...asesores, ...APP.demoAutores]} moneda={moneda} goReservas={() => setRoute("reservas")} asesor={asesor} perms={perms} />}
         {route === "cotizaciones" && <Cotizaciones cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} asesor={asesor} perms={perms} moneda={moneda} toast={toast} onLog={registrarLog} />}
         {route === "reservas" && <Reservas reservas={reservas} asesor={asesor} perms={perms} moneda={moneda} cond={cond} onLiberar={liberarReserva} onConvertir={convertirReserva} onEditarVencimiento={editarVencimientoReserva} onEditarCliente={editarClienteReserva} onEditarPago={editarPagoReserva} />}

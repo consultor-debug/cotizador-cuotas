@@ -52,6 +52,7 @@ const ICONS = {
   minimize: "M4 14h6v6 M20 10h-6V4 M14 10l7-7 M3 21l7-7",
   magnet: "M5 9v6a7 7 0 0 0 14 0V9 M9 9v6a3 3 0 0 0 6 0V9 M5 9h4 M15 9h4",
   align: "M3 4v16 M9 7h8 M9 13h12 M9 19h6",
+  grid: "M3 3h7v7H3z M14 3h7v7h-7z M14 14h7v7h-7z M3 14h7v7H3z",
   undo: "M9 14 4 9l5-5 M4 9h11a5 5 0 0 1 0 10h-5",
   redo: "M15 14l5-5-5-5 M20 9H9a5 5 0 0 0 0 10h5",
   info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z M12 11v5 M12 7.5h.01",

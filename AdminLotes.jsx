@@ -33,8 +33,8 @@ function AdminLotes({ lotes, setLotes, moneda, toast, goPlano, brand, onLog }) {
   const filtered = lotes.filter(l =>
     (filtro === "todos" || l.estado === filtro) &&
     (!mz || l.manzana === mz) && (!etapa || l.etapa === etapa) &&
-    (!qn || l.id.toLowerCase().includes(qn) || l.manzana.toLowerCase().includes(qn) || l.tipologia.toLowerCase().includes(qn))
-  );
+    (!qn || String(l.codigo || "").toLowerCase().includes(qn) || l.id.toLowerCase().includes(qn) || l.manzana.toLowerCase().includes(qn) || l.tipologia.toLowerCase().includes(qn))
+  ).sort((a, b) => codigoCmp(a, b));
   const shown = filtered.slice(0, limit);
 
   function save(l) {
@@ -244,8 +244,20 @@ function Select({ value, onChange, placeholder, options }) {
   );
 }
 
-function blankLote(lotes) {
-  return { id: "NEW-" + Date.now(), codigo: "", manzana: "A", numero: 0, etapa: "1RA ETAPA", tipologia: "Lote Residencial",
+// Orden natural por código: prefijo alfabético (manzana) y luego número
+function codigoCmp(a, b) {
+  const parse = l => {
+    const s = String(l.codigo || l.id || "").trim();
+    const m = s.match(/^([A-Za-z]*)\s*0*(\d+)/);
+    return { alpha: (m ? m[1] : s).toUpperCase(), num: m ? parseInt(m[2], 10) : Infinity, raw: s };
+  };
+  const pa = parse(a), pb = parse(b);
+  if (pa.alpha !== pb.alpha) return pa.alpha < pb.alpha ? -1 : 1;
+  if (pa.num !== pb.num) return pa.num - pb.num;
+  return pa.raw.localeCompare(pb.raw);
+}
+
+function blankLote(lotes) {  return { id: "NEW-" + Date.now(), codigo: "", manzana: "A", numero: 0, etapa: "1RA ETAPA", tipologia: "Lote Residencial",
     area: 150, frente: 8, fondo: 18.75, ladoDer: 17, ladoIzq: 17, orientacion: "Norte", precioLista: 35000, estado: "disponible", _new: true };
 }
 
@@ -260,6 +272,18 @@ function LoteModal({ lote, onSave, onClose, moneda }) {
     ["ladoIzq", "Lado Izq. m", "num", true], ["ladoDer", "Lado Der. m", "num", true],
     ["orientacion", "Orientación", "text"], ["precioLista", "Precio lista S/", "num"],
   ];
+  const numKeys = fields.filter(fd => fd[2] === "num").map(fd => fd[0]);
+  // Permite escribir decimales (8.13): mantiene el texto mientras se edita; convierte a número al guardar.
+  const sanitizeNum = v => {
+    v = String(v).replace(/[^0-9.]/g, "");
+    const i = v.indexOf(".");
+    return i === -1 ? v : v.slice(0, i + 1) + v.slice(i + 1).replace(/\./g, "");
+  };
+  function guardar() {
+    const out = { ...f, codigo: f.codigo || f.manzana + f.numero, _new: false };
+    numKeys.forEach(k => { out[k] = Number(out[k]) || 0; });
+    onSave(out);
+  }
   return (
     <Modal onClose={onClose} title={lote._new ? "Nuevo lote" : "Editar lote " + lote.codigo} width={560}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, padding: "4px 0 8px" }}>
@@ -269,8 +293,8 @@ function LoteModal({ lote, onSave, onClose, moneda }) {
             <label key={k} style={{ display: "block", opacity: locked ? 0.6 : 1 }}>
               <div className="kicker" style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 5 }}>{label}{locked && <Icon name="lock" size={11} style={{ color: "var(--faint)" }} />}</div>
               <div className={"field " + (t === "num" ? "field-mono" : "")} style={{ height: 42, background: locked ? "var(--surface-2)" : undefined }}>
-                <input type="text" value={f[k]} readOnly={locked} disabled={locked}
-                  onChange={e => set(k, t === "num" ? (Number(e.target.value.replace(/[^0-9.]/g, "")) || 0) : e.target.value)}
+                <input type="text" inputMode="decimal" value={f[k]} readOnly={locked} disabled={locked}
+                  onChange={e => set(k, t === "num" ? sanitizeNum(e.target.value) : e.target.value)}
                   style={locked ? { color: "var(--muted)", cursor: "not-allowed" } : undefined} />
               </div>
             </label>
@@ -305,7 +329,7 @@ function LoteModal({ lote, onSave, onClose, moneda }) {
       )}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Cancelar</button>
-        <button className="btn btn-primary" onClick={() => onSave({ ...f, codigo: f.codigo || f.manzana + f.numero, _new: false })}><Icon name="check" size={16} /> Guardar</button>
+        <button className="btn btn-primary" onClick={guardar}><Icon name="check" size={16} /> Guardar</button>
       </div>
     </Modal>
   );
