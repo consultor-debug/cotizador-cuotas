@@ -123,7 +123,15 @@ function Cotizador({ lote, cond, asesor, moneda, onAction, onEnviar }) {
             <div className="kicker" style={{ color: "var(--primary)" }}>Lote {lote.id}</div>
             <h2 style={{ fontSize: 25, marginTop: 4 }}>Manzana {lote.manzana} · N° {lote.numero}</h2>
           </div>
-          <span className={"badge badge-" + est.cls}><span className="dot"></span>{est.label}</span>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+            <span className={"badge badge-" + est.cls}><span className="dot"></span>{est.label}</span>
+            {lote.oferta && lote.estado === "disponible" && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 999,
+                background: "#b3324a", color: "#fff", fontSize: 10.5, fontWeight: 800, letterSpacing: ".04em", whiteSpace: "nowrap" }}>
+                <Icon name="tag" size={11} /> PRECIO ESPECIAL
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -322,28 +330,29 @@ function TopeBanner({ nivel, aprob, capStd, capExc, moneda, onSolicitar, onAprob
 }
 function PlanTable({ plan, moneda, inicial }) {
   const show = plan.rows.length > 13 ? [...plan.rows.slice(0, 6), null, ...plan.rows.slice(-6)] : plan.rows;
+  const cell = { textAlign: "right", padding: "7px 9px", whiteSpace: "nowrap" };
   return (
     <div className="fade-in" style={{ marginTop: 12, maxHeight: 280, overflowY: "auto", background: "#fff", borderRadius: 10, border: "1px solid var(--primary-100)" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
         <thead><tr style={{ position: "sticky", top: 0, background: "#fff" }}>
           {["#", "Cuota", "Capital", "Interés", "Saldo"].map((h, i) => (
-            <th key={h} style={{ textAlign: i ? "right" : "left", padding: "9px 12px", color: "var(--faint)", fontWeight: 700, fontSize: 10.5, letterSpacing: ".06em", textTransform: "uppercase", borderBottom: "1px solid var(--line-2)" }}>{h}</th>
+            <th key={h} style={{ textAlign: i ? "right" : "left", padding: "9px 9px", whiteSpace: "nowrap", color: "var(--faint)", fontWeight: 700, fontSize: 10, letterSpacing: ".05em", textTransform: "uppercase", borderBottom: "1px solid var(--line-2)" }}>{h}</th>
           ))}
         </tr></thead>
         <tbody>
           {inicial > 0 && <tr style={{ background: "var(--surface-2)" }}>
-            <td style={{ padding: "8px 12px", fontWeight: 700 }}>0</td>
-            <td className="mono" style={{ textAlign: "right", padding: "8px 12px", fontWeight: 700 }}>{LIB.money(inicial, moneda)}</td>
-            <td colSpan={3} style={{ textAlign: "right", padding: "8px 12px", color: "var(--faint)" }}>Cuota inicial</td>
+            <td style={{ padding: "7px 9px", fontWeight: 700 }}>0</td>
+            <td className="mono" style={{ ...cell, fontWeight: 700 }}>{LIB.money(inicial, moneda)}</td>
+            <td colSpan={3} style={{ textAlign: "right", padding: "7px 9px", color: "var(--faint)" }}>Cuota inicial</td>
           </tr>}
           {show.map((r, i) => r === null
             ? <tr key={"e" + i}><td colSpan={5} style={{ textAlign: "center", color: "var(--faint)", padding: "4px" }}>···</td></tr>
             : <tr key={r.m} style={{ borderTop: "1px solid var(--line-2)" }}>
-                <td style={{ padding: "8px 12px", color: "var(--muted)" }}>{r.m}</td>
-                <td className="mono" style={{ textAlign: "right", padding: "8px 12px", fontWeight: 600 }}>{LIB.money(r.cuota, moneda)}</td>
-                <td className="mono" style={{ textAlign: "right", padding: "8px 12px", color: "var(--muted)" }}>{LIB.money(r.capital, moneda)}</td>
-                <td className="mono" style={{ textAlign: "right", padding: "8px 12px", color: "var(--muted)" }}>{LIB.money(r.interes, moneda)}</td>
-                <td className="mono" style={{ textAlign: "right", padding: "8px 12px" }}>{LIB.money(r.saldo, moneda)}</td>
+                <td style={{ padding: "7px 9px", color: "var(--muted)" }}>{r.m}</td>
+                <td className="mono" style={{ ...cell, fontWeight: 600 }}>{LIB.money(r.cuota, moneda)}</td>
+                <td className="mono" style={{ ...cell, color: "var(--muted)" }}>{LIB.money(r.capital, moneda)}</td>
+                <td className="mono" style={{ ...cell, color: "var(--muted)" }}>{LIB.money(r.interes, moneda)}</td>
+                <td className="mono" style={{ ...cell }}>{LIB.money(r.saldo, moneda)}</td>
               </tr>)}
         </tbody>
       </table>

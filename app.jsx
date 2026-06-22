@@ -342,20 +342,27 @@ function App() {
   }, [t]);
 
   const nav = [
-    { k: "plano", label: "Plano", icon: "layers" },
-    { k: "cotizaciones", label: "Cotizaciones", icon: "history" },
-    { k: "reservas", label: "Reservas", icon: "clock" },
-    perms.admin && { k: "tablero", label: "Tablero", icon: "chart" },
-    { k: "bitacora", label: "Bitácora", icon: "doc" },
-    perms.admin && { k: "admin", label: "Lotes", icon: "building" },
-    perms.cond && { k: "cond", label: "Condiciones", icon: "shield" },
-    perms.usuarios && { k: "usuarios", label: "Usuarios", icon: "users" },
-    perms.usuarios && { k: "conexiones", label: "Conexiones", icon: "chart" },
-  ].filter(Boolean);
+    { type: "link", k: "plano", label: "Plano", icon: "layers" },
+    { type: "group", label: "Comercial", icon: "wallet", items: [
+      { k: "reservas", label: "Reservas", icon: "clock" },
+      { k: "cotizaciones", label: "Cotizaciones", icon: "history" },
+      { k: "tablero", label: "Tablero", icon: "chart" },
+    ] },
+    { type: "group", label: "Registro", icon: "doc", items: [
+      { k: "bitacora", label: "Bitácora", icon: "doc" },
+      perms.usuarios && { k: "conexiones", label: "Conexiones", icon: "chart" },
+    ].filter(Boolean) },
+    { type: "group", label: "Configuración", icon: "shield", items: [
+      perms.admin && { k: "admin", label: "Lotes", icon: "building" },
+      perms.cond && { k: "cond", label: "Condiciones", icon: "shield" },
+      perms.usuarios && { k: "usuarios", label: "Usuarios", icon: "users" },
+    ].filter(Boolean) },
+  ].filter(g => g.type === "link" || g.items.length > 0);
+  const allowedRoutes = nav.flatMap(g => g.type === "link" ? [g.k] : g.items.map(i => i.k));
 
   // Guardia de ruta
   useEffect(() => {
-    if (asesor && !nav.some(n => n.k === route)) setRoute("plano");
+    if (asesor && !allowedRoutes.includes(route)) setRoute("plano");
   }, [route, perms.admin, perms.cond, perms.usuarios, !!asesor]);
 
   if (appLoading) return <LoadingScreen />;
@@ -381,13 +388,12 @@ function App() {
         </div>
 
         <nav className="app-nav" style={{ display: "flex", gap: 4, marginLeft: 18, minWidth: 0, overflowX: "auto" }}>
-          {nav.map(n => (
-            <button key={n.k} onClick={() => setRoute(n.k)}
-              style={{ display: "flex", alignItems: "center", gap: 8, border: 0, background: route === n.k ? "var(--primary-050)" : "transparent", whiteSpace: "nowrap",
-                color: route === n.k ? "var(--primary-700)" : "var(--muted)", padding: "9px 15px", borderRadius: 10, fontWeight: 600, fontSize: 14, transition: ".12s" }}>
-              <Icon name={n.icon} size={16} /> {n.label}
-            </button>
-          ))}
+          {nav.map(g => g.type === "link"
+            ? <button key={g.k} className={"navbtn" + (route === g.k ? " on" : "")} onClick={() => setRoute(g.k)}>
+                <Icon name={g.icon} size={16} /> {g.label}
+              </button>
+            : <NavGroup key={g.label} group={g} route={route} setRoute={setRoute} />
+          )}
         </nav>
 
         <div className="topbar-right" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
@@ -404,7 +410,7 @@ function App() {
       {/* Contenido */}
       <main style={{ flex: 1, minHeight: 0 }}>
         {route === "plano" && <Plano lotes={lotes} setLotes={setLotes} polys={polys} setPolys={setPolys} planoImg={planoImg} setPlanoImg={setPlanoImg} planoMode={planoMode} setPlanoMode={setPlanoMode} planoOpacity={planoOpacity} setPlanoOpacity={setPlanoOpacity} cond={cond} asesor={asesor} moneda={moneda} perms={perms} brand={brand} clientes={clientes} onEnviar={setQuote} onReservar={crearReserva} onCerrarReserva={cerrarReservaDeLote} onLog={registrarLog} toast={toast} />}
-        {route === "tablero" && <Tablero lotes={lotes} cotizaciones={cotizaciones} reservas={reservas} asesores={[...asesores, ...APP.demoAutores]} moneda={moneda} goReservas={() => setRoute("reservas")} />}
+        {route === "tablero" && <Tablero lotes={lotes} cotizaciones={cotizaciones} reservas={reservas} asesores={[...asesores, ...APP.demoAutores]} moneda={moneda} goReservas={() => setRoute("reservas")} asesor={asesor} perms={perms} />}
         {route === "cotizaciones" && <Cotizaciones cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} asesor={asesor} perms={perms} moneda={moneda} toast={toast} onLog={registrarLog} />}
         {route === "reservas" && <Reservas reservas={reservas} asesor={asesor} perms={perms} moneda={moneda} cond={cond} onLiberar={liberarReserva} onConvertir={convertirReserva} onEditarVencimiento={editarVencimientoReserva} onEditarCliente={editarClienteReserva} onEditarPago={editarPagoReserva} />}
         {route === "bitacora" && <Bitacora logs={logs} asesor={asesor} perms={perms} asesores={[...asesores, ...APP.demoAutores]} />}
@@ -424,8 +430,6 @@ function App() {
         <TweakColor label="Color de marca" value={brandColor(t.theme)}
           options={["#2f5bd7", "#0f9b6c", "#b3324a", "#2b3242"]}
           onChange={(v) => setTweak("theme", { "#2f5bd7": "indigo", "#0f9b6c": "esmeralda", "#b3324a": "granate", "#2b3242": "grafito" }[v])} />
-        <TweakRadio label="Tipografía" value={t.type} options={["editorial", "geométrico", "clásico"]}
-          onChange={(v) => setTweak("type", { "editorial": "editorial", "geométrico": "geometrico", "clásico": "clasico" }[v] || v)} />
         <TweakSection label="Forma" />
         <TweakSlider label="Redondeo" value={t.radius} min={4} max={24} unit="px" onChange={(v) => setTweak("radius", v)} />
         <TweakRadio label="Densidad" value={t.density} options={["compact", "regular", "comfy"]} onChange={(v) => setTweak("density", v)} />
@@ -440,6 +444,55 @@ function brandColor(theme) {
 
 // permsFor vive en perms.js (global). Alias local por comodidad.
 const permsFor = window.permsFor;
+
+function NavGroup({ group, route, setRoute }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ left: 0, top: 0 });
+  const ref = useRef(null);
+  const btnRef = useRef(null);
+  const tmr = useRef(null);
+  const activo = group.items.some(i => i.k === route);
+
+  const medir = () => {
+    const r = btnRef.current && btnRef.current.getBoundingClientRect();
+    if (r) setPos({ left: r.left, top: r.bottom + 7 });
+  };
+  const abrir = () => { clearTimeout(tmr.current); medir(); setOpen(true); };
+  const cerrarPronto = () => { tmr.current = setTimeout(() => setOpen(false), 130); };
+
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+  useEffect(() => {
+    if (!open) return;
+    const onScrollResize = () => setOpen(false);
+    window.addEventListener("resize", onScrollResize);
+    window.addEventListener("scroll", onScrollResize, true);
+    return () => { window.removeEventListener("resize", onScrollResize); window.removeEventListener("scroll", onScrollResize, true); };
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }} onMouseEnter={abrir} onMouseLeave={cerrarPronto}>
+      <button ref={btnRef} className={"navbtn" + (activo || open ? " on" : "")} onClick={() => { if (open) { setOpen(false); } else { abrir(); } }}>
+        <Icon name={group.icon} size={16} /> {group.label}
+        <Icon name="chevDown" size={14} style={{ marginLeft: -1, opacity: .7, transition: ".15s", transform: open ? "rotate(180deg)" : "none" }} />
+      </button>
+      {open && (
+        <div className="navmenu pop" style={{ position: "fixed", top: pos.top, left: pos.left }}
+          onMouseEnter={abrir} onMouseLeave={cerrarPronto}>
+          {group.items.map(it => (
+            <button key={it.k} className={"navmenu-item" + (route === it.k ? " on" : "")}
+              onClick={() => { setRoute(it.k); setOpen(false); }}>
+              <Icon name={it.icon} size={16} style={{ color: route === it.k ? "var(--primary)" : "var(--faint)" }} /> {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function AsesorSwitcher({ asesor, perms, onLogout, goUsuarios, onReset, onClear }) {
   const [open, setOpen] = useState(false);

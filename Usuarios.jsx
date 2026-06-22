@@ -44,6 +44,13 @@ function Usuarios({ asesores, setAsesores, currentId, toast, onLog }) {
     if (onLog) onLog({ cat: "usuario", accion: "crear", detalle: "Cuenta creada para " + u.nombre + " (" + u.rol + ")", ref: prof.id });
     setCrear(false);
   }
+  async function cambiarPassword(u, newPass) {
+    const r = await DB.adminSetPassword(u.id, newPass);
+    if (!r.ok) { toast("No se pudo cambiar: " + r.motivo, "warn"); return false; }
+    toast("Contraseña de " + u.nombre + " actualizada", "ok");
+    if (onLog) onLog({ cat: "usuario", accion: "password", detalle: "Contraseña restablecida para " + u.nombre, ref: u.id });
+    return true;
+  }
   async function eliminar(u) {
     const { ok } = await DB.deleteProfile(u.id);
     if (!ok) { toast("Error al eliminar usuario", "warn"); return; }
@@ -156,6 +163,7 @@ function Usuarios({ asesores, setAsesores, currentId, toast, onLog }) {
           user={edit}
           usuariosTomados={asesores.map(a => (a.usuario || "").toLowerCase())}
           onClose={() => { setEdit(null); setCrear(false); }}
+          onSetPassword={cambiarPassword}
           onSave={(u) => edit ? guardar(u) : crearUsuario(u)} />
       )}
       {del && (
@@ -173,7 +181,7 @@ function Usuarios({ asesores, setAsesores, currentId, toast, onLog }) {
   );
 }
 
-function UserEditorModal({ user, usuariosTomados, onClose, onSave }) {
+function UserEditorModal({ user, usuariosTomados, onClose, onSave, onSetPassword }) {
   const isNew = !user;
   const esSuper = !!(user && user.super);
   const [nombre, setNombre] = useState(user ? user.nombre : "");
@@ -184,6 +192,9 @@ function UserEditorModal({ user, usuariosTomados, onClose, onSave }) {
   const [rol, setRol] = useState(user ? user.rol : ROLES_DISPONIBLES[0]);
   const [acc, setAcc] = useState(() => user ? PERMS.permsFor(user).acc : PERMS.defaultAccesos(ROLES_DISPONIBLES[0]));
   const [tocado, setTocado] = useState(!!user);  // si el usuario tocó los toggles manualmente
+  const [nuevaPass, setNuevaPass] = useState("");
+  const [verNuevaPass, setVerNuevaPass] = useState(false);
+  const [guardandoPass, setGuardandoPass] = useState(false);
 
   // al cambiar el rol en una cuenta nueva (sin tocar toggles), sincroniza accesos sugeridos
   function cambiarRol(r) {
@@ -213,7 +224,7 @@ function UserEditorModal({ user, usuariosTomados, onClose, onSave }) {
         </div>
       </div>
 
-        <div className="form-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+        <div className="form-2col" style={{ display: "grid", gridTemplateColumns: isNew ? "1fr 1fr" : "1fr", gap: 12, marginBottom: 16 }}>
         <div>
           <label className="kicker" style={{ display: "block", marginBottom: 6 }}>Usuario</label>
           <div className="field" style={{ height: 44 }}>
@@ -224,7 +235,7 @@ function UserEditorModal({ user, usuariosTomados, onClose, onSave }) {
           {usuario && !userOk && <div style={{ fontSize: 11.5, color: "var(--bad-ink)", marginTop: 5 }}>Mínimo 3 caracteres: letras, números, . _ -</div>}
           {tomado && <div style={{ fontSize: 11.5, color: "var(--bad-ink)", marginTop: 5 }}>Ese usuario ya existe.</div>}
         </div>
-        {isNew ? (
+        {isNew && (
         <div>
           <label className="kicker" style={{ display: "block", marginBottom: 6 }}>Contraseña</label>
           <div className="field" style={{ height: 44 }}>
@@ -237,14 +248,38 @@ function UserEditorModal({ user, usuariosTomados, onClose, onSave }) {
           </div>
           {password && password.length < 4 && <div style={{ fontSize: 11.5, color: "var(--bad-ink)", marginTop: 5 }}>Mínimo 4 caracteres.</div>}
         </div>
-        ) : (
-        <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-          <div style={{ fontSize: 12.5, color: "var(--muted)", padding: "8px 0" }}>
-            Contraseña: se cambia desde el panel de Supabase.
-          </div>
-        </div>
         )}
       </div>
+
+      {!isNew && (
+        <div style={{ marginBottom: 16 }}>
+          <label className="kicker" style={{ display: "block", marginBottom: 6 }}>Restablecer contraseña</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <div className="field" style={{ height: 44, flex: 1 }}>
+              <Icon name="lock" size={15} style={{ color: "var(--faint)" }} />
+              <input type={verNuevaPass ? "text" : "password"} placeholder="Nueva contraseña" value={nuevaPass}
+                autoCapitalize="none" autoCorrect="off" spellCheck="false"
+                onChange={e => setNuevaPass(e.target.value)} />
+              <button type="button" onClick={() => setVerNuevaPass(v => !v)} className="btn btn-ghost" style={{ padding: 5, marginRight: -3 }} title={verNuevaPass ? "Ocultar" : "Mostrar"}>
+                <Icon name={verNuevaPass ? "eyeOff" : "eye"} size={15} style={{ color: "var(--faint)" }} />
+              </button>
+            </div>
+            <button type="button" className="btn btn-primary" style={{ height: 44, whiteSpace: "nowrap" }}
+              disabled={nuevaPass.length < 4 || guardandoPass}
+              onClick={async () => {
+                setGuardandoPass(true);
+                const ok = await onSetPassword(user, nuevaPass);
+                setGuardandoPass(false);
+                if (ok) setNuevaPass("");
+              }}>
+              <Icon name="check" size={15} /> {guardandoPass ? "Cambiando…" : "Cambiar"}
+            </button>
+          </div>
+          {nuevaPass && nuevaPass.length < 4
+            ? <div style={{ fontSize: 11.5, color: "var(--bad-ink)", marginTop: 5 }}>Mínimo 4 caracteres.</div>
+            : <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 5 }}>El usuario iniciará sesión con la nueva contraseña de inmediato.</div>}
+        </div>
+      )}
 
       {/* Acceso habilitado */}
       {!esSuper && (

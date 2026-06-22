@@ -35,7 +35,7 @@ function Reservas({ reservas, asesor, perms, moneda, cond, onLiberar, onConverti
   const [hist, setHist] = useState(null);
 
   const puedeVerTodo = perms.verTodo;
-  const mias = puedeVerTodo ? reservas : reservas.filter(r => r.asesorId === asesor.id);
+  const mias = reservas; // todo el equipo ve todas las reservas
   const puedeEditar = (r) => perms.editarTodo || r.asesorId === asesor.id;
   const lista = mias.filter(r => filtro === "todas" || r.estado === filtro)
     .sort((a, b) => (a.estado === "activa" && b.estado === "activa") ? a.expiresAt - b.expiresAt : 0);
@@ -69,10 +69,10 @@ function Reservas({ reservas, asesor, perms, moneda, cond, onLiberar, onConverti
               {activas.length} activas{porVencer > 0 ? " · " : ""}{porVencer > 0 && <b style={{ color: "var(--warn-ink)" }}>{porVencer} por vencer en 24 h</b>}. Se liberan solas al vencer el plazo.
             </div>
             <div style={{ marginTop: 8, display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 600, color: "var(--ink-2)", background: "var(--surface-2)", border: "1px solid var(--line)", padding: "5px 11px", borderRadius: 999 }}>
-              <Icon name={puedeVerTodo ? "users" : "eye"} size={13} style={{ color: "var(--primary)" }} />
-              {puedeVerTodo
-                ? (perms.editarTodo ? "Ves y gestionas las reservas de todo el equipo" : "Ves todas; solo gestionas las tuyas")
-                : "Solo tus reservas"}
+              <Icon name="users" size={13} style={{ color: "var(--primary)" }} />
+              {perms.editarTodo
+                ? "Ves y gestionas las reservas de todo el equipo"
+                : "Ves todas las reservas · gestionas las tuyas"}
             </div>
           </div>
         </div>

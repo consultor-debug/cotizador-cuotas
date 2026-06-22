@@ -14,7 +14,7 @@
    ========================================================= */
 
 function PlanoBoard({ lotes, setLotes, polys, setPolys, planoImg, planoOpacity = 1, selId, setSel,
-                      matches, active, editMode, tool, setTool, snapOn = true, onAlignApi, toast }) {
+                      matches, active, editMode, tool, setTool, snapOn = true, onAlignApi, toast, moneda, zoom = 1 }) {
   const svgRef = useRef(null);
   const [draft, setDraft] = useState([]);
   const [hover, setHover] = useState(null);
@@ -446,6 +446,11 @@ function PlanoBoard({ lotes, setLotes, polys, setPolys, planoImg, planoOpacity =
                   stroke="#fff" strokeWidth={2} paintOrder="stroke" strokeLinejoin="round"
                   style={{ pointerEvents: "none", userSelect: "none" }}>{l.codigo || l.numero}</text>
               )}
+              {!editMode && l.oferta && l.estado === "disponible" && on && !transp && (
+                <path d={PLAN.polyPath(p.pts, p.curves)} fill="none" stroke="#b3324a" strokeWidth={2.4} strokeLinejoin="round" style={{ pointerEvents: "none" }}>
+                  <animate attributeName="opacity" values="1;.28;1" dur="1.6s" repeatCount="indefinite" />
+                </path>
+              )}
             </g>
           );
         })}
@@ -501,14 +506,65 @@ function PlanoBoard({ lotes, setLotes, polys, setPolys, planoImg, planoOpacity =
           onDelete={() => eliminar(sel)} onSubdiv={() => setSubdiv(sel)} onRename={renombrarLote} />
       )}
 
+      {/* Indicador comercial de precio sobre el lote seleccionado (modo vista) */}
+      {!editMode && sel && !sel.general && lmap[sel.loteId] && (
+        <PriceTag poly={sel} lote={lmap[sel.loteId]} moneda={moneda} zoom={zoom} onClose={() => setSel(null)} />
+      )}
+
       {nuevo && <NuevoLoteModal pts={nuevo} lotes={lotes} onCancel={() => setNuevo(null)} onCreate={crearLote} />}
       {subdiv && <SubdividirModal poly={subdiv} lotes={lotes} onCancel={() => setSubdiv(null)} onApply={(opts) => aplicarSubdiv(subdiv, opts)} />}
     </div>
   );
 }
 
-function SchematicBg() {
-  // Lienzo limpio: solo los lotes. Sin amenities, ingreso ni rótulos.
+// Indicador comercial de precio: tarjeta flotante anclada sobre el lote.
+// Se contra-escala (1/zoom) para mantener un tamaño legible a cualquier acercamiento.
+function PriceTag({ poly, lote, moneda, zoom = 1, onClose }) {
+  const bb = PLAN.bbox(poly.pts);
+  const e = LIB.ESTADOS[lote.estado] || LIB.ESTADOS.disponible;
+  const ppm = lote.area ? Math.round(lote.precioLista / lote.area) : 0;
+  const vendido = lote.estado === "vendido";
+  const inactivo = vendido || lote.estado === "no_disponible";
+  return (
+    <div className="poly-cell" key={lote.id} style={{ position: "absolute", left: bb.x + bb.w / 2, top: bb.y - 4,
+      transform: "translate(-50%,-100%) scale(" + (1 / (zoom || 1)) + ")", transformOrigin: "bottom center",
+      zIndex: 8, pointerEvents: "none" }}>
+      <div className="price-pop-card" style={{ position: "relative" }}>
+        {onClose && (
+          <button className="price-pop-x" onPointerDown={(ev) => ev.stopPropagation()} onClick={onClose} title="Cerrar (Esc)">
+            <Icon name="x" size={13} />
+          </button>
+        )}
+        {lote.oferta && lote.estado === "disponible" && (
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginBottom: 8, padding: "3px 9px", borderRadius: 999,
+            background: "#b3324a", color: "#fff", fontSize: 10, fontWeight: 800, letterSpacing: ".05em" }}>
+            <Icon name="tag" size={11} /> PRECIO ESPECIAL
+          </div>
+        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7, paddingRight: 18 }}>
+          <span style={{ width: 9, height: 9, borderRadius: 3, background: e.stroke, flexShrink: 0 }}></span>
+          <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: ".01em" }}>{lote.codigo || lote.id}</span>
+          <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: ".05em",
+            color: e.text, background: e.fill, border: "1px solid " + e.stroke, padding: "2px 8px", borderRadius: 999 }}>{e.label}</span>
+        </div>
+        <div className="mono" style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.05,
+          color: inactivo ? "var(--muted)" : "var(--primary)", textDecoration: vendido ? "line-through" : "none" }}>
+          {LIB.money(lote.precioLista, moneda)}
+        </div>
+        {(lote.area || ppm) && (
+          <div style={{ display: "flex", gap: 12, marginTop: 7, fontSize: 11.5, color: "var(--faint)", fontWeight: 600 }}>
+            {lote.area ? <span className="mono">{lote.area} m²</span> : null}
+            {ppm ? <span className="mono">{LIB.money(ppm, moneda)}/m²</span> : null}
+          </div>
+        )}
+      </div>
+      <div className="price-pop-arrow"></div>
+    </div>
+  );
+}
+window.PriceTag = PriceTag;
+
+function SchematicBg() {  // Lienzo limpio: solo los lotes. Sin amenities, ingreso ni rótulos.
   return <div style={{ position: "absolute", inset: 0, borderRadius: 10, background: "#ffffff" }}></div>;
 }
 function Amenity({ a }) {

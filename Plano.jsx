@@ -112,6 +112,19 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
     return () => ro.disconnect();
   }, []);
   useEffect(() => { if (!perms.editarPlano && editMode) setEditMode(false); }, [perms.editarPlano, editMode]);
+  // Esc deselecciona el lote (oculta etiqueta de precio + cotizador) en modo vista.
+  useEffect(() => {
+    if (editMode || !selId) return;
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      if (reservar || vaciar) return;                 // un modal abierto maneja su propio Esc
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      setSel(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editMode, selId, reservar, vaciar]);
   useEffect(() => { STORE.save("planoCompact", compact); }, [compact]);
   // Pantalla completa del lienzo: re-encuadra al entrar/salir y cierra con Esc
   useEffect(() => {
@@ -320,7 +333,7 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
                 transform: `translate(-50%,-50%) translate(${pan.x}px,${pan.y}px) scale(${zoom})`, transformOrigin: "center", transition: drag.current ? "none" : "transform .1s" }}>
                 <PlanoBoard lotes={lotes} setLotes={setLotes} polys={polys} setPolys={setPolys} planoImg={planoView} planoOpacity={planoOpacity ?? 1}
                   selId={selId} setSel={setSel} matches={matches} active={qn || filtro !== "todos"}
-                  editMode={editMode} tool={tool} setTool={setTool} snapOn={iman} onAlignApi={setAlignApi} toast={toast} />
+                  editMode={editMode} tool={tool} setTool={setTool} snapOn={iman} onAlignApi={setAlignApi} toast={toast} moneda={moneda} zoom={zoom} />
               </div>
             </div>
 
@@ -739,7 +752,7 @@ function EditarNegociacionModal({ reserva, moneda, cond, onClose, onSave }) {
 }
 window.EditarNegociacionModal = EditarNegociacionModal;
 
-const seg = { padding: "8px 16px", display: "flex", gap: 6, alignItems: "center" };
+const seg = { padding: "8px 16px", display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" };
 
 // Panel de alineación arrastrable junto a la barra de edición.
 // Modo LOTES (2+ lotes con Shift+clic) → alinea filas/columnas completas.

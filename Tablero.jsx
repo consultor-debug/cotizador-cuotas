@@ -19,8 +19,11 @@ function moneyShort(pen, moneda) {
   return sign + " " + Math.round(v);
 }
 
-function Tablero({ lotes, cotizaciones, reservas, asesores, moneda, goReservas }) {
+function Tablero({ lotes, cotizaciones, reservas, asesores, moneda, goReservas, asesor, perms }) {
   const now = Date.now();
+  const esAdmin = perms ? (perms.verTodo || perms.admin) : true;
+  const misCot = esAdmin ? cotizaciones : cotizaciones.filter(c => asesor && c.asesorId === asesor.id);
+  const misRes = esAdmin ? reservas : reservas.filter(r => asesor && r.asesorId === asesor.id);
   const total = lotes.length || 1;
   const disp = lotes.filter(l => l.estado === "disponible");
   const sep = lotes.filter(l => l.estado === "separado");
@@ -37,12 +40,12 @@ function Tablero({ lotes, cotizaciones, reservas, asesores, moneda, goReservas }
   }).sort((a, b) => b.total - a.total);
 
   // reservas
-  const activas = reservas.filter(r => r.estado === "activa");
+  const activas = misRes.filter(r => r.estado === "activa");
   const porVencer = activas.filter(r => r.expiresAt - now < 24 * 3600000 && r.expiresAt > now).length;
 
   // cotizaciones últimos 30 días
   const d30 = now - 30 * 86400000;
-  const recientes = cotizaciones.filter(c => c.ts >= d30);
+  const recientes = misCot.filter(c => c.ts >= d30);
   const cEstado = (e) => recientes.filter(c => c.estado === e).length;
   const conversion = recientes.length ? (cEstado("aceptada") / recientes.length * 100) : 0;
 
@@ -65,9 +68,9 @@ function Tablero({ lotes, cotizaciones, reservas, asesores, moneda, goReservas }
   return (
     <div style={{ height: "100%", overflowY: "auto" }}>
       <div style={{ maxWidth: 1180, margin: "0 auto", padding: "26px 36px 60px" }}>
-        <div className="kicker" style={{ color: "var(--primary)" }}>Gerencia</div>
-        <h1 style={{ fontSize: 34, marginTop: 4 }}>Tablero de control</h1>
-        <div style={{ color: "var(--muted)", marginTop: 6, fontSize: 14.5 }}>Estado del proyecto, avance comercial y desempeño del equipo.</div>
+        <div className="kicker" style={{ color: "var(--primary)" }}>{esAdmin ? "Gerencia" : "Mi desempeño"}</div>
+        <h1 style={{ fontSize: 34, marginTop: 4 }}>{esAdmin ? "Tablero de control" : "Mi tablero"}</h1>
+        <div style={{ color: "var(--muted)", marginTop: 6, fontSize: 14.5 }}>{esAdmin ? "Estado del proyecto, avance comercial y desempeño del equipo." : "Estado del proyecto y tu desempeño comercial."}</div>
 
         {/* KPIs */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, margin: "24px 0" }}>
@@ -124,7 +127,7 @@ function Tablero({ lotes, cotizaciones, reservas, asesores, moneda, goReservas }
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div className="card" style={{ padding: "20px 22px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                <h3 style={{ fontSize: 18 }}>Cotizaciones · 30 días</h3>
+                <h3 style={{ fontSize: 18 }}>{esAdmin ? "Cotizaciones · 30 días" : "Mis cotizaciones · 30 días"}</h3>
                 <span className="mono" style={{ fontSize: 20, fontWeight: 700 }}>{recientes.length}</span>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, margin: "14px 0 4px" }}>
@@ -142,6 +145,7 @@ function Tablero({ lotes, cotizaciones, reservas, asesores, moneda, goReservas }
               </div>
             </div>
 
+            {esAdmin && (
             <div className="card" style={{ padding: "20px 22px" }}>
               <h3 style={{ fontSize: 18, marginBottom: 14 }}>Ranking de asesores</h3>
               {rank.length === 0 && <div style={{ color: "var(--faint)", fontSize: 13 }}>Sin ventas registradas aún.</div>}
@@ -167,6 +171,7 @@ function Tablero({ lotes, cotizaciones, reservas, asesores, moneda, goReservas }
                 })}
               </div>
             </div>
+            )}
           </div>
         </div>
       </div>

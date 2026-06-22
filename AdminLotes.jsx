@@ -191,7 +191,12 @@ function AdminLotes({ lotes, setLotes, moneda, toast, goPlano, brand, onLog }) {
                       <input type="checkbox" checked={checked} onChange={() => toggleOne(l.id)}
                         style={{ width: 16, height: 16, cursor: "pointer", accentColor: "var(--primary)" }} />
                     </td>
-                    <td style={{ padding: "13px 18px", fontWeight: 700 }}>{l.codigo}</td>
+                    <td style={{ padding: "13px 18px", fontWeight: 700 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        {l.codigo}
+                        {l.oferta && <span className="oferta-chip"><Icon name="tag" size={10} /> Especial</span>}
+                      </div>
+                    </td>
                     <td style={{ padding: "13px 18px", color: "var(--muted)", fontSize: 13.5 }}>{l.etapa}</td>
                     <td style={{ padding: "13px 18px" }}>{l.tipologia}</td>
                     <td className="mono" style={{ padding: "13px 18px", textAlign: "right" }}>{l.area} m²</td>
@@ -280,6 +285,18 @@ function LoteModal({ lote, onSave, onClose, moneda }) {
           </div>
         </label>
       </div>
+      <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 14, padding: "12px 14px",
+        border: "1px solid " + (f.oferta ? "#e3a3ac" : "var(--line)"), borderRadius: 12, cursor: "pointer", background: f.oferta ? "var(--bad-bg)" : "var(--surface-2)" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 11 }}>
+          <span style={{ width: 32, height: 32, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+            background: f.oferta ? "#b3324a" : "var(--line)", color: f.oferta ? "#fff" : "var(--faint)" }}><Icon name="tag" size={16} /></span>
+          <span>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>Precio especial</div>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>Resalta el lote como oferta en el plano · no modifica el precio</div>
+          </span>
+        </span>
+        <input type="checkbox" checked={!!f.oferta} onChange={e => set("oferta", e.target.checked)} style={{ width: 18, height: 18, accentColor: "#b3324a", cursor: "pointer" }} />
+      </label>
       {dimsAuto && (
         <div style={{ display: "flex", gap: 9, alignItems: "flex-start", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 13px", marginTop: 4, fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>
           <Icon name="info" size={14} style={{ color: "var(--faint)", flexShrink: 0, marginTop: 1 }} />
@@ -306,9 +323,11 @@ function BulkEditModal({ count, onApply, onClose }) {
   const [val, setVal] = useState({});
   const [estadoOn, setEstadoOn] = useState(false);
   const [estado, setEstado] = useState("disponible");
+  const [ofertaOn, setOfertaOn] = useState(false);
+  const [oferta, setOferta] = useState(true);
   const setV = (k, v) => setVal(s => ({ ...s, [k]: v }));
   const toggle = (k) => setOn(s => ({ ...s, [k]: !s[k] }));
-  const activos = fields.filter(([k]) => on[k]).length + (estadoOn ? 1 : 0);
+  const activos = fields.filter(([k]) => on[k]).length + (estadoOn ? 1 : 0) + (ofertaOn ? 1 : 0);
 
   function apply() {
     const patch = {};
@@ -317,6 +336,7 @@ function BulkEditModal({ count, onApply, onClose }) {
       patch[k] = t === "num" ? (Number(String(val[k]).replace(/[^0-9.]/g, "")) || 0) : (val[k] ?? "");
     });
     if (estadoOn) patch.estado = estado;
+    if (ofertaOn) patch.oferta = oferta;
     if (Object.keys(patch).length === 0) return;
     onApply(patch);
   }
@@ -356,6 +376,20 @@ function BulkEditModal({ count, onApply, onClose }) {
             <select value={estado} disabled={!estadoOn} onChange={e => setEstado(e.target.value)}
               style={{ border: 0, background: "transparent", flex: 1, outline: 0, fontSize: 14.5, cursor: estadoOn ? "pointer" : "not-allowed" }}>
               {["disponible", "separado", "vendido", "no_disponible"].map(s => <option key={s} value={s}>{LIB.ESTADOS[s].label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ opacity: ofertaOn ? 1 : 0.55 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6, cursor: "pointer" }}>
+            <input type="checkbox" checked={ofertaOn} onChange={() => setOfertaOn(v => !v)}
+              style={{ width: 15, height: 15, cursor: "pointer", accentColor: "#b3324a" }} />
+            <span className="kicker" style={{ margin: 0 }}>Precio especial</span>
+          </label>
+          <div className="field" style={{ height: 42, background: ofertaOn ? undefined : "var(--surface-2)" }}>
+            <select value={oferta ? "si" : "no"} disabled={!ofertaOn} onChange={e => setOferta(e.target.value === "si")}
+              style={{ border: 0, background: "transparent", flex: 1, outline: 0, fontSize: 14.5, cursor: ofertaOn ? "pointer" : "not-allowed" }}>
+              <option value="si">Marcar como oferta</option>
+              <option value="no">Quitar marca de oferta</option>
             </select>
           </div>
         </div>

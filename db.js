@@ -39,6 +39,27 @@
 
   async function logout() { if (db) await db.auth.signOut(); }
 
+  // Cambia la contraseña de OTRO usuario (solo admin). La llave de servicio
+  // vive en la Edge Function, nunca aquí. Pasa la sesión del admin por el JWT.
+  async function adminSetPassword(userId, newPassword) {
+    if (!db) return { ok: false, motivo: "Base de datos no disponible." };
+    try {
+      const { data, error } = await db.functions.invoke("admin-set-password", {
+        body: { userId, newPassword },
+      });
+      if (error) {
+        // Intenta leer el mensaje devuelto por la función
+        let msg = error.message || "No se pudo cambiar la contraseña.";
+        try { const ctx = await error.context?.json?.(); if (ctx?.error) msg = ctx.error; } catch (e) {}
+        return { ok: false, motivo: msg };
+      }
+      if (data && data.error) return { ok: false, motivo: data.error };
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, motivo: String(e) };
+    }
+  }
+
   // Crea un usuario de autenticación sin cerrar la sesión del admin (cliente temporal)
   async function signUpUser(usuario, password) {
     if (!db || !cc) return { ok: false, motivo: "supabase-js no disponible." };
@@ -144,7 +165,7 @@
     return { send, unsub };
   }
 
-  window.DB = { db, getSession, login, logout, signUpUser, countProfiles,
+  window.DB = { db, getSession, login, logout, signUpUser, adminSetPassword, countProfiles,
     loadProfiles, upsertProfile, deleteProfile,
     loadMain, saveMain, loadAssets, saveAssets,
     loadConexiones, upsertConexion, clearConexiones,
