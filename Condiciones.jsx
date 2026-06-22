@@ -47,7 +47,10 @@ function Condiciones({ cond, setCond, toast, goPlano }) {
             <NumField label="Tasa anual sugerida" value={draft.tasaAnualSugerida} unit="%" onChange={v => set("tasaAnualSugerida", v)} hint="Valor por defecto del slider de tasa en el cotizador." />
           </div>
           <hr className="divider" style={{ margin: "22px 0" }} />
-          <NumField label="Juego de planos (monto fijo por lote)" value={draft.juegoPlanos} unit="S/" mono onChange={v => set("juegoPlanos", v)} hint="Se suma al precio lista cuando el asesor activa el checkbox en el cotizador." wide />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 22 }}>
+            <NumField label="Juego de planos (monto fijo por lote)" value={draft.juegoPlanos} unit="S/" mono onChange={v => set("juegoPlanos", v)} hint="Se suma al precio lista cuando el asesor activa el checkbox en el cotizador." />
+            <NumField label="Tipo de cambio" value={draft.tipoCambio} unit="S/ x US$" dec onChange={v => set("tipoCambio", v)} hint="Soles por dólar. Se usa al mostrar precios en US$ (toggle S/ · $)." />
+          </div>
         </Section>
 
         {/* Topes de descuento */}
@@ -111,14 +114,14 @@ function Section({ icon, title, children }) {
     </div>
   );
 }
-function NumField({ label, value, unit, onChange, hint, mono, wide }) {
+function NumField({ label, value, unit, onChange, hint, mono, wide, dec }) {
   return (
     <div style={{ maxWidth: wide ? 420 : "none" }}>
       <div className="kicker" style={{ marginBottom: 8 }}>{label}</div>
       <div className={"field " + (mono ? "field-mono" : "")} style={{ height: 50 }}>
         {mono && <span className="pre">{unit}</span>}
         <input type="text" value={mono ? Number(value).toLocaleString("en-US") : value} onChange={e => onChange(Number(e.target.value.replace(/[^0-9.]/g, "")) || 0)} />
-        {!mono && <span style={{ background: "var(--bg-2)", padding: "13px 14px", margin: "-13px -12px -13px 0", borderRadius: "0 10px 10px 0", color: "var(--muted)", fontSize: 13, fontWeight: 600 }}>{unit}</span>}
+        {!mono && <span style={{ background: "var(--bg-2)", padding: "13px 14px", margin: "-13px -12px -13px 0", borderRadius: "0 10px 10px 0", color: "var(--muted)", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>{unit}</span>}
       </div>
       {hint && <div style={{ fontSize: 12.5, color: "var(--faint)", marginTop: 7 }}>{hint}</div>}
     </div>

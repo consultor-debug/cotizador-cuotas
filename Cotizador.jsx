@@ -179,14 +179,8 @@ function Cotizador({ lote, cond, asesor, moneda, onAction, onEnviar }) {
         {/* Descuento */}
         <div style={{ marginTop: 20 }}>
           <MontoPctControl label="Descuento" valuePEN={descuento} basePEN={precioTotal} moneda={moneda}
-            accentMax={Math.round(precioTotal * 0.25)} onChange={setDesc}
-            hint={"Tope automático: " + LIB.money(capStd, moneda) + " · " + (tab === "contado" ? "contado" : "financiamiento")} />
-          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            {[0, 2, 5, 10, 15].map(p => (
-              <button key={p} className="btn" style={{ flex: 1, padding: "7px 0", justifyContent: "center", fontSize: 13 }}
-                onClick={() => setDesc(Math.round(precioTotal * p / 100))}>{p}%</button>
-            ))}
-          </div>
+            accentMax={Math.min(precioTotal, Math.max(capStd, capExc))} onChange={setDesc}
+            hint={"Tope automático: " + LIB.money(capStd, moneda) + " · " + (tab === "contado" ? "contado" : "financiamiento") + " · más requiere aprobación"} />
           <TopeBanner nivel={nivel} aprob={aprob} capStd={capStd} capExc={capExc} moneda={moneda}
             onSolicitar={solicitar} onAprobarYa={aprobarYa} />
         </div>
