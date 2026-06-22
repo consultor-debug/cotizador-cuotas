@@ -19,10 +19,12 @@ const RSV_ESTADOS = {
   liberada:   { label: "Liberada",   cls: "" },
 };
 
-function Reservas({ reservas, asesor, perms, moneda, cond, onLiberar, onConvertir, onEditarVencimiento }) {
+function Reservas({ reservas, asesor, perms, moneda, cond, onLiberar, onConvertir, onEditarVencimiento, onEditarCliente, onEditarPago }) {
   const now = useNow(1000);
   const [filtro, setFiltro] = useState("activa");
   const [editar, setEditar] = useState(null);
+  const [editCliente, setEditCliente] = useState(null);
+  const [editNeg, setEditNeg] = useState(null);
   const [hist, setHist] = useState(null);
 
   const puedeVerTodo = perms.verTodo;
@@ -113,9 +115,37 @@ function Reservas({ reservas, asesor, perms, moneda, cond, onLiberar, onConverti
                 )}
 
                 <div style={{ padding: "0 18px 14px", display: "flex", flexDirection: "column", gap: 9, fontSize: 13 }}>
-                  <Row k="Cliente" v={r.clienteNombre} sub={r.clienteContacto} />
+                  <ClienteRow r={r} editable={activa && puedeEditar(r)} onEdit={() => setEditCliente(r)} />
                   <Row k="Asesor" v={r.asesorNombre} />
                   <Row k="Precio lista" v={LIB.money(r.precioLista, moneda)} mono />
+                  {r.modo && (
+                    <>
+                      <div style={{ height: 1, background: "var(--line-2)", margin: "3px 0" }}></div>
+                      <Row k="Forma de pago" v={r.modo === "contado" ? "Contado" : "Fraccionamiento · " + (r.cuotas || 0) + " cuotas"} />
+                      {r.montoSeparacion != null && <Row k="Separación" v={LIB.money(r.montoSeparacion, moneda)} mono />}
+                      {r.siguientePago != null && (
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+                          <span style={{ color: "var(--ink-2)", fontSize: 12.5, fontWeight: 600 }}>Siguiente pago <span style={{ color: "var(--faint)", fontWeight: 400 }}>(inicial restante)</span></span>
+                          <span className="mono" style={{ fontWeight: 800, color: "var(--primary)" }}>{LIB.money(r.siguientePago, moneda)}</span>
+                        </div>
+                      )}
+                      {r.modo === "financiamiento" && r.cuotaMensual ? <Row k={"Cuota mensual · " + (r.cuotas || 0) + "x"} v={LIB.money(r.cuotaMensual, moneda) + "/mes"} mono /> : null}
+                      {Array.isArray(r.planInicial) && r.planInicial.length > 1 && (
+                        <Row k="Plan de inicial" v={r.planInicial.length + " pagos"} />
+                      )}
+                      {r.captacion && <Row k="Captación" v={r.captacion} />}
+                      {activa && puedeEditar(r) && (
+                        <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "center", gap: 7, marginTop: 4, fontSize: 12.5, color: "var(--primary-700)", border: "1px solid var(--primary-100)" }} onClick={() => setEditNeg(r)}>
+                          <Icon name="sliders" size={14} /> Editar negociación
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {!r.modo && activa && puedeEditar(r) && (
+                    <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "center", gap: 7, marginTop: 2, fontSize: 12.5, color: "var(--primary-700)", border: "1px solid var(--primary-100)" }} onClick={() => setEditNeg(r)}>
+                      <Icon name="sliders" size={14} /> Negociar pago / cotización
+                    </button>
+                  )}
                 </div>
 
                 <div style={{ padding: "0 18px 14px" }}>
@@ -143,6 +173,8 @@ function Reservas({ reservas, asesor, perms, moneda, cond, onLiberar, onConverti
         </div>
       </div>
       {editar && <EditVencimientoModal reserva={editar} cond={cond} now={now} onClose={() => setEditar(null)} onSave={(dias) => { onEditarVencimiento(editar, dias); setEditar(null); }} />}
+      {editCliente && <EditClienteModal reserva={editCliente} onClose={() => setEditCliente(null)} onSave={(datos) => { onEditarCliente(editCliente, datos); setEditCliente(null); }} />}
+      {editNeg && <EditarNegociacionModal reserva={editNeg} moneda={moneda} cond={cond} onClose={() => setEditNeg(null)} onSave={(pago) => { onEditarPago(editNeg, pago); setEditNeg(null); }} />}
       {hist && <HistorialModal reserva={hist} onClose={() => setHist(null)} />}
     </div>
   );
@@ -151,6 +183,8 @@ function Reservas({ reservas, asesor, perms, moneda, cond, onLiberar, onConverti
 const HIST_EV = {
   creada:     { label: "Reserva creada",          icon: "clock",   color: "var(--primary)" },
   plazo:      { label: "Plazo modificado",        icon: "sliders", color: "var(--warn-ink)" },
+  cliente:    { label: "Cliente actualizado",     icon: "edit",    color: "var(--primary)" },
+  negociacion:{ label: "Negociación actualizada", icon: "sliders", color: "var(--primary)" },
   convertida: { label: "Convertida en venta",     icon: "tag",     color: "var(--ok-ink)" },
   liberada:   { label: "Liberada",                icon: "reset",   color: "var(--muted)" },
   vencida:    { label: "Vencida automáticamente", icon: "clock",   color: "var(--bad-ink)" },
@@ -229,6 +263,53 @@ function EditVencimientoModal({ reserva, cond, now, onClose, onSave }) {
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
         <button className="btn" onClick={onClose}>Cancelar</button>
         <button className="btn btn-primary" disabled={dias < 1} onClick={() => onSave(dias)}><Icon name="check" size={15} /> Guardar plazo</button>
+      </div>
+    </Modal>
+  );
+}
+
+function ClienteRow({ r, editable, onEdit }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+      <span style={{ color: "var(--faint)", fontSize: 12.5 }}>Cliente</span>
+      <span style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 7, justifyContent: "flex-end" }}>
+        <span style={{ textAlign: "right" }}>
+          <span style={{ fontWeight: 600, color: r.clienteNombre === "Pendiente" ? "var(--warn-ink)" : "var(--ink)" }}>{r.clienteNombre}</span>
+          {r.clienteContacto && <span className="mono" style={{ display: "block", fontSize: 11.5, color: "var(--faint)" }}>{r.clienteContacto}</span>}
+        </span>
+        {editable && (
+          <button className="btn btn-ghost" title="Editar datos del cliente" onClick={onEdit}
+            style={{ padding: 5, color: "var(--primary)", flexShrink: 0 }}><Icon name="edit" size={14} /></button>
+        )}
+      </span>
+    </div>
+  );
+}
+
+function EditClienteModal({ reserva, onClose, onSave }) {
+  const [nombre, setNombre] = useState(reserva.clienteNombre === "Pendiente" ? "" : (reserva.clienteNombre || ""));
+  const [contacto, setContacto] = useState(reserva.clienteContacto || "");
+  return (
+    <Modal onClose={onClose} title="Editar cliente" width={440}>
+      <p style={{ color: "var(--muted)", fontSize: 13.5, marginTop: -6 }}>
+        Reserva del lote <b style={{ color: "var(--ink)" }}>{reserva.loteId}</b>. Actualiza el nombre y el contacto del cliente.
+      </p>
+      <label className="kicker" style={{ display: "block", margin: "16px 0 6px" }}>Nombre del cliente</label>
+      <div className="field" style={{ height: 44 }}>
+        <input autoFocus value={nombre} placeholder="Ej. Matteo G." onChange={e => setNombre(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") onSave({ nombre, contacto }); }} style={{ fontSize: 15 }} />
+      </div>
+      <label className="kicker" style={{ display: "block", margin: "14px 0 6px" }}>Contacto <span style={{ color: "var(--faint)", fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(opcional)</span></label>
+      <div className="field" style={{ height: 44 }}>
+        <input value={contacto} placeholder="Teléfono o correo" onChange={e => setContacto(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") onSave({ nombre, contacto }); }} style={{ fontSize: 15 }} />
+      </div>
+      <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 10 }}>
+        Si dejas el nombre vacío, la reserva queda como <b style={{ color: "var(--warn-ink)" }}>Pendiente</b>.
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
+        <button className="btn" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-primary" onClick={() => onSave({ nombre, contacto })}><Icon name="check" size={15} /> Guardar cliente</button>
       </div>
     </Modal>
   );

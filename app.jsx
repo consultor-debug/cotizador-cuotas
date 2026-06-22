@@ -209,20 +209,28 @@ function App() {
     upsertCliente({ nombre: rec.clienteNombre, telefono: rec.clienteContacto });
     registrarLog({ cat: "cotizacion", accion: "enviar", detalle: "Cotización " + rec.id + " enviada · lote " + rec.loteId + " · " + rec.clienteNombre, ref: rec.id });
   }
-  function crearReserva(lote, cliente, dias) {
+  function crearReserva(lote, cliente, dias, pago) {
     const now = Date.now();
     const d = dias || cond.validezDias || 3;
+    const p = pago || {};
+    const resumenPago = p.modo === "contado"
+      ? "contado"
+      : (p.cuotas ? p.cuotas + " cuotas" : "fraccionamiento");
     const r = {
       id: "RSV-" + lote.id + "-" + now.toString(36),
       loteId: lote.id, manzana: lote.manzana, numero: lote.numero, precioLista: lote.precioLista,
       asesorId: asesor.id, asesorNombre: asesor.nombre,
       clienteId: null, clienteNombre: cliente.nombre, clienteContacto: cliente.telefono || "",
+      modo: p.modo || null, montoSeparacion: p.montoSeparacion ?? null, inicialPactada: p.inicialPactada ?? null,
+      siguientePago: p.siguientePago ?? null, saldoFinanciar: p.saldoFinanciar ?? null,
+      cuotas: p.cuotas ?? 0, cuotaMensual: p.cuotaMensual ?? 0, tasa: p.tasa ?? null, captacion: p.captacion || null,
+      precioVenta: p.precioVenta ?? lote.precioLista, planInicial: p.planInicial || null, primeraCuotaDias: p.primeraCuotaDias ?? null,
       createdAt: now, expiresAt: now + d * STORE.DAY, dias: d, estado: "activa",
-      historial: [{ ts: now, accion: "creada", por: asesor.nombre, detalle: d + " días de plazo · cliente " + cliente.nombre }],
+      historial: [{ ts: now, accion: "creada", por: asesor.nombre, detalle: d + " días de plazo · cliente " + cliente.nombre + " · " + resumenPago + (p.montoSeparacion ? " · separación " + LIB.money(p.montoSeparacion, "PEN") : "") + (p.captacion ? " · captación: " + p.captacion : "") }],
     };
     setReservas(rs => [r, ...rs.filter(x => !(x.loteId === lote.id && x.estado === "activa"))]);
     upsertCliente(cliente);
-    registrarLog({ cat: "reserva", accion: "crear", detalle: "Lote " + lote.id + " separado para " + cliente.nombre + " · " + d + " días", ref: lote.id });
+    registrarLog({ cat: "reserva", accion: "crear", detalle: "Lote " + lote.id + " separado para " + cliente.nombre + " · " + d + " días · " + resumenPago, ref: lote.id });
   }
   function editarVencimientoReserva(r, dias) {
     const ts = Date.now();
@@ -234,6 +242,47 @@ function App() {
     }));
     toast("Lote " + r.loteId + " · vencimiento actualizado a " + dias + " días", "ok");
     registrarLog({ cat: "reserva", accion: "plazo", detalle: "Lote " + r.loteId + " (" + r.clienteNombre + ") · plazo a " + dias + " días", ref: r.loteId });
+  }
+  function editarClienteReserva(r, datos) {
+    const ts = Date.now();
+    const nombre = (datos.nombre || "").trim() || "Pendiente";
+    const contacto = (datos.contacto || "").trim();
+    setReservas(rs => rs.map(x => {
+      if (x.id !== r.id) return x;
+      const cambios = [];
+      if (x.clienteNombre !== nombre) cambios.push((x.clienteNombre || "—") + " → " + nombre);
+      if ((x.clienteContacto || "") !== contacto) cambios.push("contacto actualizado");
+      const ev = { ts, accion: "cliente", por: asesor.nombre, detalle: cambios.join(" · ") || "Datos del cliente actualizados" };
+      return { ...x, clienteNombre: nombre, clienteContacto: contacto, historial: [...(x.historial || []), ev] };
+    }));
+    toast("Lote " + r.loteId + " · cliente actualizado a " + nombre, "ok");
+    registrarLog({ cat: "reserva", accion: "editar", detalle: "Lote " + r.loteId + " · cliente actualizado a " + nombre, ref: r.loteId });
+  }
+  function editarPagoReserva(r, pago) {
+    const ts = Date.now();
+    const money = (n) => LIB.money(n || 0, "PEN");
+    setReservas(rs => rs.map(x => {
+      if (x.id !== r.id) return x;
+      const cambios = [];
+      if ((x.modo || "") !== pago.modo) cambios.push("forma " + (x.modo || "—") + " → " + pago.modo);
+      if ((x.precioVenta || 0) !== pago.precioVenta) cambios.push("precio " + money(x.precioVenta) + " → " + money(pago.precioVenta));
+      if ((x.inicialPactada || 0) !== pago.inicialPactada) cambios.push("inicial " + money(x.inicialPactada) + " → " + money(pago.inicialPactada));
+      if ((x.montoSeparacion || 0) !== pago.montoSeparacion) cambios.push("separación " + money(x.montoSeparacion) + " → " + money(pago.montoSeparacion));
+      if ((x.cuotas || 0) !== pago.cuotas) cambios.push("cuotas " + (x.cuotas || 0) + " → " + pago.cuotas);
+      const npa = (pago.planInicial || []).length, npb = (x.planInicial || []).length;
+      if (npa !== npb) cambios.push("plan inicial " + npb + " → " + npa + " pagos");
+      const ev = { ts, accion: "negociacion", por: asesor.nombre, detalle: cambios.join(" · ") || "Cotización pactada actualizada" };
+      return {
+        ...x,
+        modo: pago.modo, precioVenta: pago.precioVenta, montoSeparacion: pago.montoSeparacion,
+        inicialPactada: pago.inicialPactada, siguientePago: pago.siguientePago, saldoFinanciar: pago.saldoFinanciar,
+        cuotas: pago.cuotas, cuotaMensual: pago.cuotaMensual, tasa: pago.tasa, captacion: pago.captacion || x.captacion,
+        planInicial: pago.planInicial, primeraCuotaDias: pago.primeraCuotaDias,
+        historial: [...(x.historial || []), ev],
+      };
+    }));
+    toast("Lote " + r.loteId + " · negociación actualizada", "ok");
+    registrarLog({ cat: "reserva", accion: "negociacion", detalle: "Lote " + r.loteId + " (" + r.clienteNombre + ") · cotización pactada actualizada", ref: r.loteId });
   }
   function cerrarReservaDeLote(loteId, estado) {
     setReservas(rs => rs.map(r => r.loteId === loteId && r.estado === "activa" ? { ...r, estado } : r));
@@ -287,9 +336,9 @@ function App() {
 
   const nav = [
     { k: "plano", label: "Plano", icon: "layers" },
-    perms.admin && { k: "tablero", label: "Tablero", icon: "chart" },
     { k: "cotizaciones", label: "Cotizaciones", icon: "history" },
     { k: "reservas", label: "Reservas", icon: "clock" },
+    perms.admin && { k: "tablero", label: "Tablero", icon: "chart" },
     { k: "bitacora", label: "Bitácora", icon: "doc" },
     perms.admin && { k: "admin", label: "Lotes", icon: "building" },
     perms.cond && { k: "cond", label: "Condiciones", icon: "shield" },
@@ -350,7 +399,7 @@ function App() {
         {route === "plano" && <Plano lotes={lotes} setLotes={setLotes} polys={polys} setPolys={setPolys} planoImg={planoImg} setPlanoImg={setPlanoImg} planoMode={planoMode} setPlanoMode={setPlanoMode} planoOpacity={planoOpacity} setPlanoOpacity={setPlanoOpacity} cond={cond} asesor={asesor} moneda={moneda} perms={perms} brand={brand} clientes={clientes} onEnviar={setQuote} onReservar={crearReserva} onCerrarReserva={cerrarReservaDeLote} onLog={registrarLog} toast={toast} />}
         {route === "tablero" && <Tablero lotes={lotes} cotizaciones={cotizaciones} reservas={reservas} asesores={[...asesores, ...APP.demoAutores]} moneda={moneda} goReservas={() => setRoute("reservas")} />}
         {route === "cotizaciones" && <Cotizaciones cotizaciones={cotizaciones} setCotizaciones={setCotizaciones} asesor={asesor} perms={perms} moneda={moneda} toast={toast} onLog={registrarLog} />}
-        {route === "reservas" && <Reservas reservas={reservas} asesor={asesor} perms={perms} moneda={moneda} cond={cond} onLiberar={liberarReserva} onConvertir={convertirReserva} onEditarVencimiento={editarVencimientoReserva} />}
+        {route === "reservas" && <Reservas reservas={reservas} asesor={asesor} perms={perms} moneda={moneda} cond={cond} onLiberar={liberarReserva} onConvertir={convertirReserva} onEditarVencimiento={editarVencimientoReserva} onEditarCliente={editarClienteReserva} onEditarPago={editarPagoReserva} />}
         {route === "bitacora" && <Bitacora logs={logs} asesor={asesor} perms={perms} asesores={[...asesores, ...APP.demoAutores]} />}
         {route === "admin" && <AdminLotes lotes={lotes} setLotes={setLotes} moneda={moneda} toast={toast} goPlano={() => setRoute("plano")} brand={brand} onLog={registrarLog} />}
         {route === "cond" && <Condiciones cond={cond} setCond={setCond} toast={toast} goPlano={() => setRoute("plano")} />}

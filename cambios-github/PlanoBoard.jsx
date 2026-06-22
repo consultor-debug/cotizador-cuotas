@@ -74,9 +74,9 @@ function PlanoBoard({ lotes, setLotes, polys, setPolys, planoImg, planoOpacity =
   const drawing = editMode && (tool === "draw" || tool === "general");
 
   // ---- DIBUJAR (lote o general) ----
-  // El vértice se coloca con un CLICK (sin arrastre); arrastrar el fondo hace pan del plano.
-  function bgClick(e) {
+  function bgPointerDown(e) {
     if (!drawing) return;
+    e.stopPropagation();
     let u = toUser(e);
     if (draft.length >= 3 && PLAN.dist(u, draft[0]) < 12) { cerrarDraft(); return; }
     const prevPt = draft.length ? draft[draft.length - 1] : null;
@@ -405,7 +405,7 @@ function PlanoBoard({ lotes, setLotes, polys, setPolys, planoImg, planoOpacity =
       <svg ref={svgRef} viewBox="0 0 1240 684" width={1240} height={684}
         style={{ position: "absolute", inset: 0, cursor: drawing ? "crosshair" : "grab", touchAction: "none" }}>
         <rect x={0} y={0} width={1240} height={684} fill="transparent"
-          onPointerMove={bgMove} onClick={bgClick} onDoubleClick={() => draft.length >= 3 && cerrarDraft()} />
+          onPointerDown={bgPointerDown} onPointerMove={bgMove} onDoubleClick={() => draft.length >= 3 && cerrarDraft()} />
 
         {polys.map(p => {
           const isSel = p.loteId === selId;

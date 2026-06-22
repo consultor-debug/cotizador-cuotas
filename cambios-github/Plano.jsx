@@ -15,12 +15,10 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
   useEffect(() => { STORE.save("planoIman", iman); }, [iman]);
   const [alignApi, setAlignApi] = useState(null);   // estado de selección reportado por el lienzo
   const [alignOpen, setAlignOpen] = useState(false); // panel "Alinear" desplegado
-  const alignBtnRef = useRef(null);                  // ancla para posicionar el panel (fixed, evita recorte por overflow)
   const [vaciar, setVaciar] = useState(false);
   const [compact, setCompact] = useState(() => STORE.load("planoCompact", false));
   const [expand, setExpand] = useState(false);
   const [reservar, setReservar] = useState(null);   // lote pendiente de reserva
-  const [reservaQuote, setReservaQuote] = useState(null); // cotización viva al separar
   const [barPos, setBarPos] = useState({ x: 16, y: 16 });
   const barDrag = useRef(null);
   const drag = useRef(null);
@@ -132,9 +130,9 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
     return true;
   }
   function setEstado(id, estado) { setLotes(ls => ls.map(l => l.id === id ? { ...l, estado } : l)); }
-  function onAction(k, quote) {
+  function onAction(k) {
     if (!sel) return;
-    if (k === "separar") { setReservaQuote(quote || null); setReservar(sel); return; }
+    if (k === "separar") { setReservar(sel); return; }
     if (k === "vendido") { setEstado(sel.id, "vendido"); onCerrarReserva && onCerrarReserva(sel.id, "convertida"); onLog && onLog({ cat: "venta", accion: "vendido", detalle: "Lote " + sel.id + " marcado como vendido", ref: sel.id }); toast("Lote " + sel.id + " marcado como vendido por " + asesor.nombre, "ok"); }
     if (k === "liberar") { setEstado(sel.id, "disponible"); onCerrarReserva && onCerrarReserva(sel.id, "liberada"); onLog && onLog({ cat: "lote", accion: "liberar", detalle: "Lote " + sel.id + " liberado (disponible)", ref: sel.id }); toast("Lote " + sel.id + " liberado", "ok"); }
     if (k === "no_disponible") { setEstado(sel.id, "no_disponible"); onCerrarReserva && onCerrarReserva(sel.id, "liberada"); onLog && onLog({ cat: "lote", accion: "no_disponible", detalle: "Lote " + sel.id + " marcado como no disponible", ref: sel.id }); toast("Lote " + sel.id + " marcado como no disponible para venta", "warn"); }
@@ -144,9 +142,9 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
       toast(nuevo ? "Lote " + sel.id + " transparente · se ve el plano de fondo" : "Lote " + sel.id + " con relleno de color", "ok");
     }
   }
-  function confirmarReserva(lote, cliente, dias, pago) {
+  function confirmarReserva(lote, cliente, dias) {
     setEstado(lote.id, "separado");
-    onReservar && onReservar(lote, cliente, dias, pago);
+    onReservar && onReservar(lote, cliente, dias);
     setReservar(null);
     toast("Lote " + lote.id + " separado para " + cliente.nombre + " · vence en " + dias + " días", "warn");
   }
@@ -154,7 +152,7 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
   // zoom & pan — en edición se permite mover el plano arrastrando con la herramienta "Ajustar"
   // (los lotes, vértices y mangos detienen la propagación, así que arrastrarlos sigue moviéndolos).
   function onWheel(e) { e.preventDefault(); setZoom(z => Math.min(2.2, Math.max(0.5, z - e.deltaY * 0.0012))); }
-  const panAllowed = true;  // se puede mover el plano arrastrando en cualquier herramienta; el click coloca vértices, el arrastre hace pan
+  const panAllowed = !editMode || tool === "select";
   function onDown(e) {
     if (!panAllowed) return;                           // dibujando: el click coloca vértices
     if (e.target.closest(".poly-cell")) return;       // controles flotantes
@@ -349,7 +347,7 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
                 <button onClick={() => setTool("general")} className={"btn " + (tool === "general" ? "btn-primary" : "btn-ghost")} style={{ fontSize: 13, flexShrink: 0 }}><Icon name="layers" size={15} /> Polígono general</button>
                 <span style={{ width: 1, height: 22, background: "var(--line)", margin: "0 2px", flexShrink: 0 }}></span>
                 <button onClick={() => setIman(v => !v)} className={"btn " + (iman ? "btn-primary" : "btn-ghost")} style={{ fontSize: 13, flexShrink: 0 }} title={iman ? "Imán activo: los puntos se pegan a las esquinas vecinas. Mantén Alt para colocar libre." : "Imán desactivado: colocas los puntos donde quieras."}><Icon name="magnet" size={15} /> Imán {iman ? "on" : "off"}</button>
-                <div ref={alignBtnRef} style={{ position: "relative", flexShrink: 0 }}>
+                <div style={{ position: "relative", flexShrink: 0 }}>
                   <button onClick={() => setAlignOpen(o => !o)} disabled={tool !== "select"}
                     className={"btn " + (alignOpen ? "btn-primary" : "btn-ghost")} style={{ fontSize: 13, opacity: tool !== "select" ? .45 : 1 }}
                     title="Alinear vértices o lotes, distribuir y fijar ángulos">
@@ -357,7 +355,7 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
                     {alignApi && (alignApi.lotsCount >= 2 || alignApi.vselCount >= 1) &&
                       <span className="mono" style={{ marginLeft: 4, fontSize: 11, opacity: .85 }}>{alignApi.lotsCount >= 2 ? alignApi.lotsCount + " lotes" : alignApi.vselCount}</span>}
                   </button>
-                  {alignOpen && tool === "select" && <AlignPanel api={alignApi} anchorRef={alignBtnRef} onClose={() => setAlignOpen(false)} />}
+                  {alignOpen && tool === "select" && <AlignPanel api={alignApi} onClose={() => setAlignOpen(false)} />}
                 </div>
                 <span style={{ width: 1, height: 22, background: "var(--line)", margin: "0 2px", flexShrink: 0 }}></span>
                 <button onClick={() => setVaciar(true)} className="btn btn-ghost" style={{ fontSize: 13, color: "var(--bad-ink)", flexShrink: 0 }}><Icon name="trash" size={15} /> Mapear desde cero</button>
@@ -399,56 +397,28 @@ function Plano({ lotes, setLotes, polys, setPolys, planoImg, setPlanoImg, planoM
           </div>
         </Modal>
       )}
-      {reservar && <ReservaModal lote={reservar} quote={reservaQuote} clientes={clientes} cond={cond} moneda={moneda} onClose={() => { setReservar(null); setReservaQuote(null); }} onConfirm={confirmarReserva} />}
+      {reservar && <ReservaModal lote={reservar} clientes={clientes} cond={cond} moneda={moneda} onClose={() => setReservar(null)} onConfirm={confirmarReserva} />}
     </div>
   );
 }
 
-function ReservaModal({ lote, quote, clientes, cond, moneda, onClose, onConfirm }) {
-  const precioBase = quote ? quote.precioVenta : lote.precioLista;
+function ReservaModal({ lote, clientes, cond, moneda, onClose, onConfirm }) {
   const [nombre, setNombre] = useState("");
   const [tel, setTel] = useState("");
   const [sug, setSug] = useState(false);
   const [dias, setDias] = useState(cond.validezDias || 3);
-  const [modo, setModo] = useState(quote ? quote.modo : "financiamiento");
-  const [sep, setSep] = useState(() => Math.round(precioBase * 0.02 / 100) * 100);
-  const [inicial, setInicial] = useState(() => quote ? quote.inicial : Math.round(precioBase * 0.2 / 100) * 100);
-  const [cuotas, setCuotas] = useState(quote && quote.plazo ? quote.plazo : 24);
-  const [captacion, setCaptacion] = useState("");
-  const [iniPlan, setIniPlan] = useState([]);     // pagos adicionales de la inicial: [{dias, monto}]
   const matches = (clientes || []).filter(c => nombre.trim().length >= 2 && c.nombre.toLowerCase().includes(nombre.trim().toLowerCase())).slice(0, 4);
-
-  const precio = precioBase;
-  const tasa = quote && quote.tasa != null ? quote.tasa : (cond.tasaAnualSugerida || 8);
-  const D = computePago({ modo, precio, sep, inicial, cuotas, tasa, iniPlan });
-  const { inicialPactada, siguientePago, saldoFinanciar, cuotaMensual } = D;
-
-  const ok = nombre.trim().length >= 2 && dias >= 1 && sep >= 0 && !!captacion && (modo === "contado" || cuotas >= 1);
+  const ok = nombre.trim().length >= 2 && dias >= 1;
   const opciones = [...new Set([cond.validezDias || 3, 7, 12, 15, 30])].sort((a, b) => a - b);
   const vence = new Date(Date.now() + dias * 86400000);
-  function confirmar() {
-    onConfirm(lote, { nombre: nombre.trim(), telefono: tel.trim() }, dias, {
-      modo, precioVenta: precio, montoSeparacion: sep, inicialPactada, siguientePago, saldoFinanciar,
-      cuotas: modo === "financiamiento" ? cuotas : 0, cuotaMensual, tasa, captacion,
-      planInicial: D.planInicial, primeraCuotaDias: D.primeraCuotaDias,
-    });
-  }
   return (
-    <Modal onClose={onClose} title="Separar lote" width={520}>
+    <Modal onClose={onClose} title="Separar lote" width={460}>
       <p style={{ color: "var(--muted)", fontSize: 13.5, marginTop: -6 }}>
         Reserva el lote <b style={{ color: "var(--ink)" }}>{lote.id}</b> (Mz {lote.manzana} · N° {lote.numero}). Vencido el plazo se libera automáticamente.
       </p>
-      <div style={{ background: quote ? "var(--primary-050)" : "var(--warn-bg)", border: "1px solid " + (quote ? "var(--primary-100)" : "#f0d6a8"), borderRadius: 12, padding: "10px 14px", margin: "14px 0 16px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 13, color: quote ? "var(--primary-700)" : "var(--warn-ink)", fontWeight: 600 }}>{quote ? "Precio de venta (cotización)" : "Precio lista"}</span>
-          <span className="mono" style={{ fontSize: 15, fontWeight: 700, color: quote ? "var(--primary-700)" : "var(--warn-ink)" }}>{LIB.money(precioBase, moneda)}</span>
-        </div>
-        {quote && quote.descuento > 0 && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 5, fontSize: 12, color: "var(--muted)" }}>
-            <span>Lista {LIB.money(quote.precioTotal, moneda)} · descuento aplicado</span>
-            <span className="mono">− {LIB.money(quote.descuento, moneda)}</span>
-          </div>
-        )}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--warn-bg)", border: "1px solid #f0d6a8", borderRadius: 12, padding: "10px 14px", margin: "14px 0 16px" }}>
+        <span style={{ fontSize: 13, color: "var(--warn-ink)", fontWeight: 600 }}>Precio lista</span>
+        <span className="mono" style={{ fontSize: 15, fontWeight: 700, color: "var(--warn-ink)" }}>{LIB.money(lote.precioLista, moneda)}</span>
       </div>
       <label className="kicker" style={{ display: "block", marginBottom: 6 }}>Cliente</label>
       <div style={{ position: "relative", marginBottom: 14 }}>
@@ -468,22 +438,6 @@ function ReservaModal({ lote, quote, clientes, cond, moneda, onClose, onConfirm 
       </div>
       <label className="kicker" style={{ display: "block", marginBottom: 6 }}>Teléfono / contacto</label>
       <div className="field" style={{ height: 44, marginBottom: 16 }}><Icon name="whatsapp" size={15} style={{ color: "var(--faint)" }} /><input placeholder="Ej. 987 654 321" value={tel} onChange={e => setTel(e.target.value)} /></div>
-
-      {/* Pago / negociación */}
-      <PagoFields modo={modo} setModo={setModo} sep={sep} setSep={setSep}
-        inicial={inicial} setInicial={setInicial} cuotas={cuotas} setCuotas={setCuotas}
-        iniPlan={iniPlan} setIniPlan={setIniPlan} precio={precio} tasa={tasa} moneda={moneda} />
-
-      {/* Captación */}
-      <label className="kicker" style={{ display: "block", marginBottom: 6 }}>Medio de captación</label>
-      <div className="field" style={{ height: 44, marginBottom: 16, position: "relative", paddingRight: 6 }}>
-        <select value={captacion} onChange={e => setCaptacion(e.target.value)}
-          style={{ border: 0, outline: 0, background: "transparent", flex: 1, fontSize: 14.5, color: captacion ? "var(--ink)" : "var(--muted)", appearance: "none", cursor: "pointer", height: "100%" }}>
-          <option value="">¿Cómo llegó el cliente?</option>
-          {CAPTACION_OPC.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <Icon name="chevDown" size={16} style={{ color: "var(--faint)", pointerEvents: "none" }} />
-      </div>
 
       {/* Plazo de vencimiento */}
       <label className="kicker" style={{ display: "block", marginBottom: 8 }}>Plazo de vencimiento</label>
@@ -506,238 +460,18 @@ function ReservaModal({ lote, quote, clientes, cond, moneda, onClose, onConfirm 
 
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
         <button className="btn" onClick={onClose}>Cancelar</button>
-        <button className="btn btn-primary" disabled={!ok} onClick={confirmar}><Icon name="clock" size={15} /> Separar {dias} días</button>
+        <button className="btn btn-primary" disabled={!ok} onClick={() => onConfirm(lote, { nombre: nombre.trim(), telefono: tel.trim() }, dias)}><Icon name="clock" size={15} /> Separar {dias} días</button>
       </div>
     </Modal>
   );
 }
-
-const CAPTACION_OPC = ["Feria inmobiliaria", "Redes sociales", "Referido", "Página web", "WhatsApp", "Llamada / Call center", "Volante / Valla", "Visita a oficina", "Campaña / Anuncio", "Otro"];
-
-function MoneyField({ value, onChange, disabled }) {
-  return (
-    <div className="field field-mono" style={{ height: 44, opacity: disabled ? 0.55 : 1, background: disabled ? "var(--surface-2)" : undefined }}>
-      <span style={{ color: "var(--faint)", fontSize: 13 }}>S/</span>
-      <input className="mono" inputMode="numeric" disabled={disabled}
-        value={value ? value.toLocaleString("es-PE") : ""} placeholder="0"
-        onChange={e => onChange(Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
-        style={disabled ? { cursor: "not-allowed" } : undefined} />
-    </div>
-  );
-}
-
-function PayRow({ k, v, strong }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-      <span style={{ color: strong ? "var(--ink-2)" : "var(--muted)", fontSize: 12.5, fontWeight: strong ? 600 : 400 }}>{k}</span>
-      <span className="mono" style={{ fontWeight: strong ? 800 : 600, fontSize: strong ? 15 : 13, color: strong ? "var(--primary)" : "var(--ink-2)", whiteSpace: "nowrap" }}>{v}</span>
-    </div>
-  );
-}
-
-// Cálculo central de la negociación de pago (se usa al separar y al renegociar).
-function computePago({ modo, precio, sep, inicial, cuotas, tasa, iniPlan }) {
-  const inicialPactada = modo === "financiamiento" ? inicial : precio;
-  const siguientePago = Math.max(0, inicialPactada - sep);
-  const saldoFinanciar = modo === "financiamiento" ? Math.max(0, precio - inicial) : 0;
-  const cuotaMensual = modo === "financiamiento" && cuotas > 0 ? Math.round(LIB.cuotaMensual(saldoFinanciar, tasa || 0, cuotas)) : 0;
-  const plan = iniPlan || [];
-  const planTotal = sep + plan.reduce((a, p) => a + (Number(p.monto) || 0), 0);
-  const faltanteIni = inicialPactada - planTotal;
-  const lastIniDias = plan.length ? Math.max(...plan.map(p => Number(p.dias) || 0)) : 0;
-  const primeraCuotaDias = lastIniDias + 30;
-  const planInicial = [
-    { n: 1, dias: 0, monto: sep, tipo: "separación" },
-    ...plan.map((p, i) => ({ n: i + 2, dias: Number(p.dias) || 0, monto: Number(p.monto) || 0, tipo: "inicial" })),
-  ];
-  return { inicialPactada, siguientePago, saldoFinanciar, cuotaMensual, planTotal, faltanteIni, lastIniDias, primeraCuotaDias, planInicial };
-}
-
-// Editor del cronograma de la cuota inicial (separación hoy + pagos parciales).
-function PlanIniEditor({ sep, inicialPactada, iniPlan, setIniPlan, moneda }) {
-  const [nPartes, setNPartes] = useState(2);
-  const [cadaDias, setCadaDias] = useState(15);
-  const planTotal = sep + iniPlan.reduce((a, p) => a + (Number(p.monto) || 0), 0);
-  const faltante = inicialPactada - planTotal;
-  function generar() {
-    const resto = Math.max(0, inicialPactada - sep);
-    const k = Math.max(1, Math.min(24, nPartes));
-    const base = Math.max(0, Math.round(resto / k / 10) * 10);
-    const rows = []; let acum = 0;
-    for (let i = 0; i < k; i++) {
-      const monto = i === k - 1 ? Math.max(0, resto - acum) : base;
-      acum += monto;
-      rows.push({ dias: cadaDias * (i + 1), monto });
-    }
-    setIniPlan(rows);
-  }
-  const setRow = (i, patch) => setIniPlan(rs => rs.map((r, j) => j === i ? { ...r, ...patch } : r));
-  const addRow = () => setIniPlan(rs => [...rs, { dias: (rs.length ? Math.max(...rs.map(r => Number(r.dias) || 0)) : 0) + cadaDias, monto: 0 }]);
-  const delRow = (i) => setIniPlan(rs => rs.filter((_, j) => j !== i));
-  const Cell = ({ children, w }) => <div style={{ width: w, flexShrink: 0 }}>{children}</div>;
-  return (
-    <div style={{ border: "1px dashed var(--line)", borderRadius: 12, padding: "12px 14px", marginBottom: 14, background: "var(--surface)" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-        <span className="kicker" style={{ margin: 0 }}>Plan de la cuota inicial</span>
-        <span style={{ fontSize: 11.5, color: "var(--faint)" }}>negociable</span>
-      </div>
-      <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5, margin: "0 0 10px" }}>
-        La separación de hoy es el primer pago. Agrega pagos parciales hasta completar la inicial; al terminarla empieza la cuota mensual.
-      </p>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-        <span style={{ fontSize: 12.5, color: "var(--ink-2)" }}>Fraccionar el resto en</span>
-        <div className="field field-mono" style={{ width: 64, height: 36, padding: "0 8px" }}>
-          <input className="mono" type="number" min={1} max={24} value={nPartes} onChange={e => setNPartes(Math.max(1, Math.min(24, Number(e.target.value) || 1)))} />
-        </div>
-        <span style={{ fontSize: 12.5, color: "var(--ink-2)" }}>pagos cada</span>
-        <div className="field field-mono" style={{ width: 70, height: 36, padding: "0 8px" }}>
-          <input className="mono" type="number" min={1} max={120} value={cadaDias} onChange={e => setCadaDias(Math.max(1, Math.min(120, Number(e.target.value) || 1)))} />
-          <span style={{ color: "var(--faint)", fontSize: 11.5 }}>d</span>
-        </div>
-        <button className="btn btn-ghost" style={{ fontSize: 12.5, color: "var(--primary-700)", padding: "6px 10px" }} onClick={generar}><Icon name="sliders" size={14} /> Generar</button>
-      </div>
-      {/* Cronograma */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 9, background: "var(--surface-2)" }}>
-          <Cell w={70}><span style={{ fontSize: 12, fontWeight: 700 }}>Hoy</span></Cell>
-          <Cell w={90}><span style={{ fontSize: 11.5, color: "var(--faint)" }}>separación</span></Cell>
-          <div style={{ marginLeft: "auto" }} className="mono">{LIB.money(sep, moneda)}</div>
-        </div>
-        {iniPlan.map((p, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Cell w={70}><span style={{ fontSize: 12.5, fontWeight: 600 }}>Pago {i + 2}</span></Cell>
-            <div className="field field-mono" style={{ width: 96, height: 36, padding: "0 8px" }}>
-              <input className="mono" type="number" min={1} max={400} value={p.dias} onChange={e => setRow(i, { dias: Math.max(0, Number(e.target.value) || 0) })} />
-              <span style={{ color: "var(--faint)", fontSize: 11.5 }}>días</span>
-            </div>
-            <div style={{ flex: 1 }}><MoneyField value={Number(p.monto) || 0} onChange={v => setRow(i, { monto: v })} /></div>
-            <button className="btn btn-ghost btn-danger" style={{ padding: 7 }} onClick={() => delRow(i)}><Icon name="trash" size={14} /></button>
-          </div>
-        ))}
-      </div>
-      <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "center", marginTop: 8, fontSize: 12.5, color: "var(--primary-700)" }} onClick={addRow}><Icon name="plus" size={14} /> Agregar pago parcial</button>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--line-2)", fontSize: 12.5 }}>
-        <span style={{ color: "var(--muted)" }}>Programado <b className="mono" style={{ color: "var(--ink)" }}>{LIB.money(planTotal, moneda)}</b> / inicial {LIB.money(inicialPactada, moneda)}</span>
-        <span className="mono" style={{ fontWeight: 700, color: Math.abs(faltante) < 1 ? "var(--ok-ink)" : "var(--bad-ink)" }}>
-          {Math.abs(faltante) < 1 ? "✓ completa" : (faltante > 0 ? "faltan " + LIB.money(faltante, moneda) : "excede " + LIB.money(-faltante, moneda))}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// Bloque de campos de pago/negociación, reutilizado al separar y al renegociar.
-function PagoFields({ modo, setModo, sep, setSep, inicial, setInicial, cuotas, setCuotas, iniPlan, setIniPlan, precio, setPrecio, precioEditable, tasa, moneda }) {
-  const D = computePago({ modo, precio, sep, inicial, cuotas, tasa, iniPlan });
-  const hoy = Date.now();
-  return (
-    <>
-      <label className="kicker" style={{ display: "block", marginBottom: 6 }}>Forma de pago</label>
-      <div className="segtabs" style={{ marginBottom: 14 }}>
-        <button className={modo === "contado" ? "on" : ""} onClick={() => setModo("contado")}>Contado</button>
-        <button className={modo === "financiamiento" ? "on" : ""} onClick={() => setModo("financiamiento")}>Fraccionamiento</button>
-      </div>
-      {precioEditable && (
-        <div style={{ marginBottom: 14 }}>
-          <label className="kicker" style={{ display: "block", marginBottom: 6 }}>Precio de venta pactado</label>
-          <MoneyField value={precio} onChange={setPrecio} />
-        </div>
-      )}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-        <div>
-          <label className="kicker" style={{ display: "block", marginBottom: 6 }}>Monto de separación</label>
-          <MoneyField value={sep} onChange={setSep} />
-        </div>
-        <div>
-          <label className="kicker" style={{ display: "block", marginBottom: 6 }}>{modo === "financiamiento" ? "Cuota inicial pactada" : "Precio al contado"}</label>
-          <MoneyField value={D.inicialPactada} onChange={setInicial} disabled={modo !== "financiamiento"} />
-        </div>
-      </div>
-      {modo === "financiamiento" && (
-        <div style={{ marginBottom: 14 }}>
-          <label className="kicker" style={{ display: "block", marginBottom: 6 }}>Número de cuotas</label>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {[12, 24, 36, 48, 60].map(n => (
-              <button key={n} onClick={() => setCuotas(n)}
-                style={{ border: "1px solid " + (cuotas === n ? "var(--primary)" : "var(--line)"), background: cuotas === n ? "var(--primary)" : "#fff", color: cuotas === n ? "#fff" : "var(--ink-2)",
-                  padding: "8px 14px", borderRadius: 10, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>{n}</button>
-            ))}
-            <div className="field field-mono" style={{ width: 120, height: 40 }}>
-              <input className="mono" type="number" min={1} max={120} value={cuotas} onChange={e => setCuotas(Math.max(1, Math.min(120, Number(e.target.value) || 1)))} />
-              <span style={{ color: "var(--faint)", fontSize: 12.5, paddingRight: 4 }}>cuotas</span>
-            </div>
-          </div>
-        </div>
-      )}
-      {modo === "financiamiento" && (
-        <PlanIniEditor sep={sep} inicialPactada={D.inicialPactada} iniPlan={iniPlan} setIniPlan={setIniPlan} moneda={moneda} />
-      )}
-      <div style={{ background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 12, padding: "12px 14px", marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-        <PayRow k="Siguiente pago (inicial restante)" v={LIB.money(D.siguientePago, moneda)} strong />
-        {modo === "financiamiento" && <PayRow k="Saldo a financiar" v={LIB.money(D.saldoFinanciar, moneda)} />}
-        {modo === "financiamiento" && <PayRow k={"Cuota mensual estimada · " + cuotas + " cuotas"} v={LIB.money(D.cuotaMensual, moneda) + "/mes"} />}
-        {modo === "contado" && <PayRow k="Tras la separación, paga el saldo completo" v={LIB.money(D.siguientePago, moneda)} />}
-        {modo === "financiamiento" && iniPlan.length > 0 && (
-          <PayRow k="1ª cuota mensual estimada" v={LIB.fmtFecha(new Date(hoy + D.primeraCuotaDias * 86400000))} />
-        )}
-      </div>
-    </>
-  );
-}
-
-// Renegociar una reserva activa: edita toda la cotización pactada y la registra en el historial.
-function EditarNegociacionModal({ reserva, moneda, cond, onClose, onSave }) {
-  const r = reserva;
-  const base = r.precioVenta || r.precioLista || 0;
-  const [modo, setModo] = useState(r.modo || "financiamiento");
-  const [precio, setPrecio] = useState(base);
-  const [sep, setSep] = useState(r.montoSeparacion || 0);
-  const [inicial, setInicial] = useState(r.inicialPactada != null ? r.inicialPactada : Math.round(base * 0.2));
-  const [cuotas, setCuotas] = useState(r.cuotas || 24);
-  const [captacion, setCaptacion] = useState(r.captacion || "");
-  const [iniPlan, setIniPlan] = useState(() => (r.planInicial || []).filter(p => p.tipo === "inicial").map(p => ({ dias: p.dias, monto: p.monto })));
-  const tasa = r.tasa != null ? r.tasa : (cond.tasaAnualSugerida || 8);
-  const D = computePago({ modo, precio, sep, inicial, cuotas, tasa, iniPlan });
-  function guardar() {
-    onSave({
-      modo, precioVenta: precio, montoSeparacion: sep,
-      inicialPactada: D.inicialPactada, siguientePago: D.siguientePago, saldoFinanciar: D.saldoFinanciar,
-      cuotas: modo === "financiamiento" ? cuotas : 0, cuotaMensual: D.cuotaMensual, tasa, captacion,
-      planInicial: D.planInicial, primeraCuotaDias: D.primeraCuotaDias,
-    });
-  }
-  return (
-    <Modal onClose={onClose} title={"Negociación · Lote " + r.loteId} width={560}>
-      <p style={{ color: "var(--muted)", fontSize: 13.5, marginTop: -6, marginBottom: 16 }}>
-        Todo es negociable en la reserva. Lo que pactes aquí queda como la <b style={{ color: "var(--ink)" }}>cotización del cliente</b> y se registra en su historial.
-      </p>
-      <PagoFields modo={modo} setModo={setModo} sep={sep} setSep={setSep}
-        inicial={inicial} setInicial={setInicial} cuotas={cuotas} setCuotas={setCuotas}
-        iniPlan={iniPlan} setIniPlan={setIniPlan} precio={precio} setPrecio={setPrecio} precioEditable tasa={tasa} moneda={moneda} />
-      <label className="kicker" style={{ display: "block", marginBottom: 6 }}>Medio de captación</label>
-      <div className="field" style={{ height: 44, marginBottom: 16, position: "relative", paddingRight: 6 }}>
-        <select value={captacion} onChange={e => setCaptacion(e.target.value)}
-          style={{ border: 0, outline: 0, background: "transparent", flex: 1, fontSize: 14.5, color: captacion ? "var(--ink)" : "var(--muted)", appearance: "none", cursor: "pointer", height: "100%" }}>
-          <option value="">¿Cómo llegó el cliente?</option>
-          {CAPTACION_OPC.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <Icon name="chevDown" size={16} style={{ color: "var(--faint)", pointerEvents: "none" }} />
-      </div>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 6 }}>
-        <button className="btn" onClick={onClose}>Cancelar</button>
-        <button className="btn btn-primary" onClick={guardar}><Icon name="check" size={15} /> Guardar negociación</button>
-      </div>
-    </Modal>
-  );
-}
-window.EditarNegociacionModal = EditarNegociacionModal;
 
 const seg = { padding: "8px 16px", display: "flex", gap: 6, alignItems: "center" };
 
 // Panel de alineación arrastrable junto a la barra de edición.
 // Modo LOTES (2+ lotes con Shift+clic) → alinea filas/columnas completas.
 // Modo VÉRTICES (1 lote) → fija ángulo de un vértice y alinea/distribuye vértices.
-function AlignPanel({ api, anchorRef, onClose }) {
+function AlignPanel({ api, onClose }) {
   const Glyph = window.AlignGlyph;
   const lots = !!api && api.lotsCount >= 2;
   const vcount = api ? api.vselCount : 0;
@@ -761,37 +495,8 @@ function AlignPanel({ api, anchorRef, onClose }) {
     <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--faint)", padding: "9px 10px 3px" }}>{children}</div>
   );
   const presets = [45, 90, 120, 135];
-
-  // Posición fija anclada al botón: el dock inferior tiene overflow-x:auto, que
-  // recorta cualquier popup que suba por encima de la barra. Con `fixed` evitamos el recorte.
-  const [pos, setPos] = useState(null);
-  React.useLayoutEffect(() => {
-    function place() {
-      const el = anchorRef && anchorRef.current;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      setPos({ left: r.left, bottom: window.innerHeight - r.top + 8 });
-    }
-    place();
-    window.addEventListener("resize", place);
-    window.addEventListener("scroll", place, true);
-    return () => { window.removeEventListener("resize", place); window.removeEventListener("scroll", place, true); };
-  }, [anchorRef]);
-
-  // Cierra al hacer clic fuera del panel y del botón ancla.
-  const panelRef = useRef(null);
-  useEffect(() => {
-    const h = e => {
-      if (panelRef.current && panelRef.current.contains(e.target)) return;
-      if (anchorRef && anchorRef.current && anchorRef.current.contains(e.target)) return;
-      onClose && onClose();
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [anchorRef, onClose]);
-
   return (
-    <div ref={panelRef} className="card pop poly-cell" style={{ position: "fixed", left: pos ? pos.left : -9999, bottom: pos ? pos.bottom : 0, width: 250, padding: 6, boxShadow: "var(--shadow-lg)", zIndex: 200, whiteSpace: "normal", maxHeight: "70vh", overflowY: "auto", visibility: pos ? "visible" : "hidden" }}>
+    <div className="card pop poly-cell" style={{ position: "absolute", bottom: "calc(100% + 8px)", left: 0, width: 250, padding: 6, boxShadow: "var(--shadow-lg)", zIndex: 30, whiteSpace: "normal", maxHeight: "70vh", overflowY: "auto" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 6px 6px" }}>
         <span style={{ fontSize: 12.5, fontWeight: 700 }}>{lots ? "Alinear lotes" : "Alinear vértices"}</span>
         <span style={{ fontSize: 11, color: "var(--faint)" }}>{count} sel.</span>

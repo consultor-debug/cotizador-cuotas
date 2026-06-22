@@ -10,6 +10,8 @@ function AdminLotes({ lotes, setLotes, moneda, toast, goPlano, brand, onLog }) {
   const [limit, setLimit] = useState(40);
   const [edit, setEdit] = useState(null);     // lote en edición / nuevo
   const [importOpen, setImportOpen] = useState(false);
+  const [sel, setSel] = useState(() => new Set());  // ids seleccionados (edición masiva)
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const stats = {
     total: lotes.length,
@@ -43,6 +45,42 @@ function AdminLotes({ lotes, setLotes, moneda, toast, goPlano, brand, onLog }) {
     setEdit(null);
   }
   function del(l) { setLotes(ls => ls.filter(x => x.id !== l.id)); onLog && onLog({ cat: "lote", accion: "eliminar", detalle: "Lote " + l.id + " eliminado", ref: l.id }); toast("Lote " + l.id + " eliminado", "bad"); }
+
+  // ---- Selección para edición masiva ----
+  const filteredIds = filtered.map(l => l.id);
+  const allSelected = filteredIds.length > 0 && filteredIds.every(id => sel.has(id));
+  const someSelected = filteredIds.some(id => sel.has(id));
+  function toggleAll() {
+    setSel(s => {
+      const n = new Set(s);
+      if (allSelected) filteredIds.forEach(id => n.delete(id));
+      else filteredIds.forEach(id => n.add(id));
+      return n;
+    });
+  }
+  function toggleOne(id) {
+    setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  function bulkApply(patch) {
+    const ids = sel;
+    const tocaDims = ["area", "frente", "fondo", "ladoIzq", "ladoDer"].some(k => k in patch);
+    setLotes(ls => ls.map(l => ids.has(l.id)
+      ? { ...l, ...patch, ...(tocaDims ? { dimsAuto: false } : {}) }
+      : l));
+    const campos = Object.keys(patch).join(", ");
+    toast(ids.size + (ids.size === 1 ? " lote actualizado" : " lotes actualizados") + " en masa", "ok");
+    onLog && onLog({ cat: "lote", accion: "editar", detalle: "Edición masiva de " + ids.size + " lotes · " + campos, ref: "" });
+    setBulkOpen(false);
+    setSel(new Set());
+  }
+  function bulkDelete() {
+    const ids = sel;
+    if (!confirm("¿Eliminar " + ids.size + " lotes seleccionados? Esta acción no se puede deshacer.")) return;
+    setLotes(ls => ls.filter(l => !ids.has(l.id)));
+    onLog && onLog({ cat: "lote", accion: "eliminar", detalle: ids.size + " lotes eliminados en masa", ref: "" });
+    toast(ids.size + " lotes eliminados", "bad");
+    setSel(new Set());
+  }
 
   function exportCSV() {
     const head = ["codigo", "manzana", "etapa", "tipologia", "area_m2", "frente", "fondo", "lado_der", "lado_izq", "precio_lista", "estado"];
@@ -108,13 +146,30 @@ function AdminLotes({ lotes, setLotes, moneda, toast, goPlano, brand, onLog }) {
           <span style={{ marginLeft: "auto", color: "var(--muted)", fontSize: 13.5 }} className="mono">{filtered.length} de {lotes.length} lotes</span>
         </div>
 
+        {/* Barra de edición masiva */}
+        {sel.size > 0 && (
+          <div className="card" style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 18px", marginBottom: 14, border: "1px solid var(--primary)", boxShadow: "0 0 0 3px var(--primary-050)" }}>
+            <span style={{ fontWeight: 700, fontSize: 14.5 }}><span className="mono" style={{ color: "var(--primary)" }}>{sel.size}</span> {sel.size === 1 ? "lote seleccionado" : "lotes seleccionados"}</span>
+            <span style={{ width: 1, height: 22, background: "var(--line)" }}></span>
+            <button className="btn btn-primary" onClick={() => setBulkOpen(true)}><Icon name="edit" size={15} /> Editar en masa</button>
+            <button className="btn btn-ghost btn-danger" onClick={bulkDelete}><Icon name="trash" size={15} /> Eliminar</button>
+            <button className="btn btn-ghost" style={{ marginLeft: "auto", color: "var(--muted)" }} onClick={() => setSel(new Set())}><Icon name="x" size={15} /> Quitar selección</button>
+          </div>
+        )}
+
         {/* Tabla */}
         <div className="card" style={{ overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: "var(--surface-2)" }}>
-                {["Código", "Etapa", "Tipología", "Área m²", "Frente", "Fondo", "Precio lista", "Estado", ""].map((h, i) => (
-                  <th key={i} style={{ textAlign: i >= 3 && i <= 6 ? "right" : "left", padding: "13px 18px", fontSize: 11, fontWeight: 800,
+                <th style={{ width: 44, padding: "13px 0 13px 18px", borderBottom: "1px solid var(--line)" }}>
+                  <input type="checkbox" checked={allSelected}
+                    ref={el => { if (el) el.indeterminate = !allSelected && someSelected; }}
+                    onChange={toggleAll} title="Seleccionar todos los lotes filtrados"
+                    style={{ width: 16, height: 16, cursor: "pointer", accentColor: "var(--primary)" }} />
+                </th>
+                {[["Código", "left"], ["Etapa", "left"], ["Tipología", "left"], ["Área m²", "right"], ["Frente", "right"], ["Fondo", "right"], ["Lado izq", "right"], ["Lado der", "right"], ["Precio lista", "right"], ["Estado", "left"], ["", "right"]].map(([h, al], i) => (
+                  <th key={i} style={{ textAlign: al, padding: "13px 18px", fontSize: 11, fontWeight: 800,
                     letterSpacing: ".07em", textTransform: "uppercase", color: "var(--faint)", borderBottom: "1px solid var(--line)" }}>{h}</th>
                 ))}
               </tr>
@@ -122,14 +177,21 @@ function AdminLotes({ lotes, setLotes, moneda, toast, goPlano, brand, onLog }) {
             <tbody>
               {shown.map(l => {
                 const e = LIB.ESTADOS[l.estado];
+                const checked = sel.has(l.id);
                 return (
-                  <tr key={l.id} style={{ borderBottom: "1px solid var(--line-2)" }} className="row-hover">
+                  <tr key={l.id} style={{ borderBottom: "1px solid var(--line-2)", background: checked ? "var(--primary-050)" : undefined }} className="row-hover">
+                    <td style={{ padding: "13px 0 13px 18px" }}>
+                      <input type="checkbox" checked={checked} onChange={() => toggleOne(l.id)}
+                        style={{ width: 16, height: 16, cursor: "pointer", accentColor: "var(--primary)" }} />
+                    </td>
                     <td style={{ padding: "13px 18px", fontWeight: 700 }}>{l.codigo}</td>
                     <td style={{ padding: "13px 18px", color: "var(--muted)", fontSize: 13.5 }}>{l.etapa}</td>
                     <td style={{ padding: "13px 18px" }}>{l.tipologia}</td>
                     <td className="mono" style={{ padding: "13px 18px", textAlign: "right" }}>{l.area} m²</td>
                     <td className="mono" style={{ padding: "13px 18px", textAlign: "right", color: "var(--muted)" }}>{l.frente}</td>
                     <td className="mono" style={{ padding: "13px 18px", textAlign: "right", color: "var(--muted)" }}>{l.fondo}</td>
+                    <td className="mono" style={{ padding: "13px 18px", textAlign: "right", color: "var(--muted)" }}>{l.ladoIzq}</td>
+                    <td className="mono" style={{ padding: "13px 18px", textAlign: "right", color: "var(--muted)" }}>{l.ladoDer}</td>
                     <td className="mono" style={{ padding: "13px 18px", textAlign: "right", fontWeight: 700, color: "var(--ok-ink)" }}>{LIB.money(l.precioLista, moneda)}</td>
                     <td style={{ padding: "13px 18px" }}><span className={"badge badge-" + e.cls}>{e.label}</span></td>
                     <td style={{ padding: "13px 18px", textAlign: "right", whiteSpace: "nowrap" }}>
@@ -151,6 +213,7 @@ function AdminLotes({ lotes, setLotes, moneda, toast, goPlano, brand, onLog }) {
       </div>
 
       {edit && <LoteModal lote={edit} onSave={save} onClose={() => setEdit(null)} moneda={moneda} />}
+      {bulkOpen && <BulkEditModal count={sel.size} onApply={bulkApply} onClose={() => setBulkOpen(false)} />}
       {importOpen && <ImportModal onClose={() => setImportOpen(false)} toast={toast} lotes={lotes} setLotes={setLotes} onLog={onLog} />}
     </div>
   );
@@ -177,7 +240,7 @@ function blankLote(lotes) {
 function LoteModal({ lote, onSave, onClose, moneda }) {
   const [f, setF] = useState(lote);
   const set = (k, v) => setF(s => ({ ...s, [k]: v }));
-  const dimsLocked = !!f.dimsAuto;
+  const dimsAuto = !!f.dimsAuto;   // estimado del polígono, pero editable
   const fields = [
     ["codigo", "Código", "text"], ["manzana", "Manzana", "text"], ["etapa", "Etapa", "text"],
     ["tipologia", "Tipología", "text"], ["area", "Área m²", "num"],
@@ -189,7 +252,7 @@ function LoteModal({ lote, onSave, onClose, moneda }) {
     <Modal onClose={onClose} title={lote._new ? "Nuevo lote" : "Editar lote " + lote.codigo} width={560}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, padding: "4px 0 8px" }}>
         {fields.map(([k, label, t, dim]) => {
-          const locked = dim && dimsLocked;
+          const locked = false; // frente/fondo/lados editables aunque vengan estimados
           return (
             <label key={k} style={{ display: "block", opacity: locked ? 0.6 : 1 }}>
               <div className="kicker" style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 5 }}>{label}{locked && <Icon name="lock" size={11} style={{ color: "var(--faint)" }} />}</div>
@@ -210,15 +273,90 @@ function LoteModal({ lote, onSave, onClose, moneda }) {
           </div>
         </label>
       </div>
-      {dimsLocked && (
+      {dimsAuto && (
         <div style={{ display: "flex", gap: 9, alignItems: "flex-start", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 13px", marginTop: 4, fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>
-          <Icon name="lock" size={14} style={{ color: "var(--faint)", flexShrink: 0, marginTop: 1 }} />
-          <span>Lote generado de forma masiva. Frente, fondo y lados se estiman del polígono del plano y no son editables — en lotes irregulares o con curvas la medida regular no aplica. Edita el <b>Área m²</b> con el valor real del plano si lo necesitas.</span>
+          <Icon name="info" size={14} style={{ color: "var(--faint)", flexShrink: 0, marginTop: 1 }} />
+          <span>Frente, fondo y lados se <b>estiman del polígono del plano</b> — en lotes irregulares o con curvas la medida regular puede no coincidir. Puedes editarlos con el valor real del plano cuando lo necesites.</span>
         </div>
       )}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Cancelar</button>
         <button className="btn btn-primary" onClick={() => onSave({ ...f, codigo: f.codigo || f.manzana + f.numero, _new: false })}><Icon name="check" size={16} /> Guardar</button>
+      </div>
+    </Modal>
+  );
+}
+
+function BulkEditModal({ count, onApply, onClose }) {
+  const fields = [
+    ["etapa", "Etapa", "text"], ["tipologia", "Tipología", "text"],
+    ["area", "Área m²", "num"], ["precioLista", "Precio lista S/", "num"],
+    ["frente", "Frente m", "num"], ["fondo", "Fondo m", "num"],
+    ["ladoIzq", "Lado izq. m", "num"], ["ladoDer", "Lado der. m", "num"],
+    ["orientacion", "Orientación", "text"],
+  ];
+  const [on, setOn] = useState({});
+  const [val, setVal] = useState({});
+  const [estadoOn, setEstadoOn] = useState(false);
+  const [estado, setEstado] = useState("disponible");
+  const setV = (k, v) => setVal(s => ({ ...s, [k]: v }));
+  const toggle = (k) => setOn(s => ({ ...s, [k]: !s[k] }));
+  const activos = fields.filter(([k]) => on[k]).length + (estadoOn ? 1 : 0);
+
+  function apply() {
+    const patch = {};
+    fields.forEach(([k, , t]) => {
+      if (!on[k]) return;
+      patch[k] = t === "num" ? (Number(String(val[k]).replace(/[^0-9.]/g, "")) || 0) : (val[k] ?? "");
+    });
+    if (estadoOn) patch.estado = estado;
+    if (Object.keys(patch).length === 0) return;
+    onApply(patch);
+  }
+
+  return (
+    <Modal onClose={onClose} title={"Editar " + count + (count === 1 ? " lote en masa" : " lotes en masa")} width={620}>
+      <div style={{ display: "flex", gap: 9, alignItems: "flex-start", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 13px", marginBottom: 16, fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>
+        <Icon name="info" size={14} style={{ color: "var(--faint)", flexShrink: 0, marginTop: 1 }} />
+        <span>Marca solo los campos que quieras cambiar. El mismo valor se aplicará a los <b>{count}</b> lotes seleccionados; los campos sin marcar se conservan tal cual.</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, padding: "2px 0 8px" }}>
+        {fields.map(([k, label, t]) => {
+          const active = !!on[k];
+          return (
+            <div key={k} style={{ opacity: active ? 1 : 0.55 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6, cursor: "pointer" }}>
+                <input type="checkbox" checked={active} onChange={() => toggle(k)}
+                  style={{ width: 15, height: 15, cursor: "pointer", accentColor: "var(--primary)" }} />
+                <span className="kicker" style={{ margin: 0 }}>{label}</span>
+              </label>
+              <div className={"field " + (t === "num" ? "field-mono" : "")} style={{ height: 42, background: active ? undefined : "var(--surface-2)" }}>
+                <input type="text" value={val[k] ?? ""} disabled={!active}
+                  placeholder={active ? "Nuevo valor…" : "—"}
+                  onChange={e => setV(k, t === "num" ? e.target.value.replace(/[^0-9.]/g, "") : e.target.value)}
+                  style={!active ? { color: "var(--faint)", cursor: "not-allowed" } : undefined} />
+              </div>
+            </div>
+          );
+        })}
+        <div style={{ opacity: estadoOn ? 1 : 0.55 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6, cursor: "pointer" }}>
+            <input type="checkbox" checked={estadoOn} onChange={() => setEstadoOn(v => !v)}
+              style={{ width: 15, height: 15, cursor: "pointer", accentColor: "var(--primary)" }} />
+            <span className="kicker" style={{ margin: 0 }}>Estado</span>
+          </label>
+          <div className="field" style={{ height: 42, background: estadoOn ? undefined : "var(--surface-2)" }}>
+            <select value={estado} disabled={!estadoOn} onChange={e => setEstado(e.target.value)}
+              style={{ border: 0, background: "transparent", flex: 1, outline: 0, fontSize: 14.5, cursor: estadoOn ? "pointer" : "not-allowed" }}>
+              {["disponible", "separado", "vendido", "no_disponible"].map(s => <option key={s} value={s}>{LIB.ESTADOS[s].label}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginTop: 16 }}>
+        <span style={{ marginRight: "auto", fontSize: 13, color: "var(--muted)" }}>{activos} {activos === 1 ? "campo" : "campos"} a cambiar</span>
+        <button className="btn" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-primary" disabled={activos === 0} onClick={apply}><Icon name="check" size={16} /> Aplicar a {count} {count === 1 ? "lote" : "lotes"}</button>
       </div>
     </Modal>
   );
@@ -356,7 +494,7 @@ function Modal({ children, title, onClose, width = 540 }) {
     document.addEventListener("keydown", h); return () => document.removeEventListener("keydown", h);
   }, []);
   return (
-    <div onMouseDown={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.42)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }}>
+    <div onMouseDown={onClose} onPointerDown={e => e.stopPropagation()} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.42)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }}>
       <div className="card pop" onMouseDown={e => e.stopPropagation()} style={{ width, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", padding: 26, boxShadow: "var(--shadow-lg)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <h2 style={{ fontSize: 22 }}>{title}</h2>

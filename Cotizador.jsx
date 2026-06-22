@@ -39,7 +39,7 @@ function Cotizador({ lote, cond, asesor, moneda, onAction, onEnviar }) {
   const [tab, setTab] = useState("financiamiento");
   const [planosOn, setPlanosOn] = useState(true);
   const [desc, setDesc] = useState(0);
-  const [inicial, setInicial] = useState(0);
+  const [inicialPct, setInicialPct] = useState(20);  // % del precio de venta (se reescala con el descuento)
   const [plazo, setPlazo] = useState(24);
   const [tasa, setTasa] = useState(cond.tasaAnualSugerida);
   const [verPlan, setVerPlan] = useState(false);
@@ -48,7 +48,7 @@ function Cotizador({ lote, cond, asesor, moneda, onAction, onEnviar }) {
 
   // Reset al cambiar de lote O cuando cambia su precio lista (sync bidireccional con AdminLotes)
   useEffect(() => {
-    setDesc(0); setInicial(Math.round((lote.precioLista + cond.juegoPlanos) * 0.2));
+    setDesc(0); setInicialPct(20);
     setPlazo(24); setTab("financiamiento"); setPlanosOn(true);
     setAprob({ state: "idle", by: null, left: 0 });
   }, [lote.id, lote.precioLista]);
@@ -57,6 +57,7 @@ function Cotizador({ lote, cond, asesor, moneda, onAction, onEnviar }) {
   const precioTotal = lote.precioLista + juego;
   const descuento = Math.min(desc, precioTotal);
   const precioVenta = precioTotal - descuento;
+  const inicial = Math.round(precioVenta * inicialPct / 100);
   const saldo = Math.max(0, precioVenta - Math.min(inicial, precioVenta));
 
   // Topes
@@ -179,11 +180,11 @@ function Cotizador({ lote, cond, asesor, moneda, onAction, onEnviar }) {
         {tab === "financiamiento" && (
           <div className="fade-in" style={{ marginTop: 20 }}>
             <MontoPctControl label="Cuota inicial" valuePEN={Math.min(inicial, precioVenta)} basePEN={precioVenta} moneda={moneda}
-              onChange={setInicial} hint="Calculada sobre el precio de venta (después de descuentos). El asesor define el monto." />
+              onChange={pen => setInicialPct(precioVenta > 0 ? Math.max(0, Math.min(100, pen / precioVenta * 100)) : 0)} hint="Calculada sobre el precio de venta (después de descuentos). El asesor define el monto." />
             <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
               {[0, 10, 20, 30, 50].map(p => (
                 <button key={p} className="btn" style={{ flex: 1, padding: "7px 0", justifyContent: "center", fontSize: 13 }}
-                  onClick={() => setInicial(Math.round(precioVenta * p / 100))}>{p}%</button>
+                  onClick={() => setInicialPct(p)}>{p}%</button>
               ))}
             </div>
 
@@ -232,7 +233,7 @@ function Cotizador({ lote, cond, asesor, moneda, onAction, onEnviar }) {
             disabled={bloqueado || lote.estado === "vendido" || lote.estado === "no_disponible"} onClick={() => onEnviar(buildQuote())}>
             <Icon name="send" size={16} /> Enviar cotización
           </button>
-          <ActionMenu lote={lote} bloqueado={bloqueado} onAction={onAction} />
+          <ActionMenu lote={lote} bloqueado={bloqueado} onAction={onAction} getQuote={buildQuote} />
         </div>
         {bloqueado && <div style={{ fontSize: 11.5, color: "var(--warn-ink)", marginTop: 8, textAlign: "center" }}>Requiere aprobación antes de enviar o vender.</div>}
       </div>
@@ -342,7 +343,7 @@ function PlanTable({ plan, moneda, inicial }) {
     </div>
   );
 }
-function ActionMenu({ lote, bloqueado, onAction }) {
+function ActionMenu({ lote, bloqueado, onAction, getQuote }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -363,7 +364,7 @@ function ActionMenu({ lote, bloqueado, onAction }) {
         <div className="card pop" style={{ position: "absolute", bottom: "calc(100% + 8px)", right: 0, width: 230, padding: 6, boxShadow: "var(--shadow-lg)", zIndex: 30 }}>
           {items.map(it => (
             <button key={it.k} disabled={it.dis} className="btn btn-ghost" style={{ width: "100%", justifyContent: "flex-start", opacity: it.dis ? .5 : 1 }}
-              onClick={() => { if (!it.dis) { onAction(it.k); setOpen(false); } }}>
+              onClick={() => { if (!it.dis) { onAction(it.k, it.k === "separar" && getQuote ? getQuote() : undefined); setOpen(false); } }}>
               <Icon name={it.icon} size={16} /> {it.label}
             </button>
           ))}

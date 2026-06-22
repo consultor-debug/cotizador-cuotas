@@ -47,7 +47,6 @@ const ICONS = {
   align: "M3 4v16 M9 7h8 M9 13h12 M9 19h6",
   undo: "M9 14 4 9l5-5 M4 9h11a5 5 0 0 1 0 10h-5",
   redo: "M15 14l5-5-5-5 M20 9H9a5 5 0 0 0 0 10h5",
-  info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z M12 11v5 M12 7.5h.01",
 };
 
 function Icon({ name, size = 18, stroke = 1.8, style, className }) {

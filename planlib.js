@@ -244,15 +244,13 @@
       }
       const c = centroid(p.pts), bb = bbox(p.pts);
       if (bb.h > 16 && bb.w > 12) {
-        ctx.font = "700 8px 'Hanken Grotesk',sans-serif";
+        const label = String(l.codigo || l.numero);
+        ctx.font = "800 5px 'Hanken Grotesk',sans-serif";
         ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        if (l.transparente) {
-          ctx.lineWidth = 2.4; ctx.strokeStyle = "#fff"; ctx.strokeText(String(l.codigo || l.numero), c[0], c[1]);
-          ctx.fillStyle = "#2f3440";
-        } else {
-          ctx.fillStyle = e.text;
-        }
-        ctx.fillText(String(l.codigo || l.numero), c[0], c[1]);
+        ctx.lineJoin = "round"; ctx.lineWidth = 2; ctx.strokeStyle = "#fff";
+        ctx.strokeText(label, c[0], c[1]);
+        ctx.fillStyle = l.transparente ? "#2f3440" : e.text;
+        ctx.fillText(label, c[0], c[1]);
       }
     });
 
